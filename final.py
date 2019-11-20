@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 
-cap = cv2.VideoCapture('Study clip 017.mpg')
+
+cap = cv2.VideoCapture('vtest.avi')
 ret, frame = cap.read()
 
 # Default resolutions of the frame are obtained.The default resolutions are system dependent.
@@ -9,6 +10,8 @@ ret, frame = cap.read()
 frame_width = int(cap.get(3))
 frame_height = int(cap.get(4))
 fps = cap.get(cv2.CAP_PROP_FPS)
+
+#res = cv2.CreateMat(frame_height, frame_width, cv2.CV_8U)
 
 # Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
 out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
@@ -59,18 +62,21 @@ while(cap.isOpened()):
         points1 = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
         points2 = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
         # Find homography
-        h, mask = cv2.findHomography(points1, points2, cv2.RANSAC)
+        h, mask = cv2.findHomography(points1, points2, cv2.RANSAC,3.0)
 
         # Use homography
         height, width = im2.shape
         im1Reg = cv2.warpPerspective(im1, h, (width, height))
+        im2Reg = cv2.warpPerspective(im2, h, (width, height))
 
         imMatches = cv2.drawMatchesKnn(im1, kp1, im2, kp2, [good], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
         cv2.imwrite("matches.jpg", imMatches)
 
         out.write(im1Reg)
 
-        cv2.imshow("grayframe",imMatches)
+        cv2.absdiff(im2Reg, im2, im2Reg)
+
+        cv2.imshow("grayframe",im2Reg)
     else:
         print('Could not read frame')
 
