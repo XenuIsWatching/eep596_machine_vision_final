@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 
-cap = cv2.VideoCapture('vtest.avi')
+cap = cv2.VideoCapture('Study clip 057.mpg')
 ret, frame = cap.read()
 
 # Default resolutions of the frame are obtained.The default resolutions are system dependent.
@@ -66,17 +66,20 @@ while(cap.isOpened()):
 
         # Use homography
         height, width = im2.shape
-        im1Reg = cv2.warpPerspective(im1, h, (width, height))
-        im2Reg = cv2.warpPerspective(im2, h, (width, height))
+        im1Reg = cv2.warpPerspective(im1, h, (width, height), flags=cv2.INTER_LINEAR+cv2.WARP_FILL_OUTLIERS)
+        im2Reg = cv2.warpPerspective(im2, h, (width, height), flags=cv2.INTER_LINEAR+cv2.WARP_FILL_OUTLIERS)
 
         imMatches = cv2.drawMatchesKnn(im1, kp1, im2, kp2, [good], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-        cv2.imwrite("matches.jpg", imMatches)
+
+        cv2.imshow("matches.jpg", imMatches)
 
         out.write(im1Reg)
 
+        cv2.imshow("grayframe", im2Reg)
+
         cv2.absdiff(im2Reg, im2, im2Reg)
 
-        cv2.imshow("grayframe",im2Reg)
+        cv2.imshow("absDiff", im2Reg)
     else:
         print('Could not read frame')
 
