@@ -18,9 +18,11 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
 
 while(cap.isOpened()):
-    frameSkipped = 5
+    frameSkipped = 2
     prev_frame = frame[:]
     ret, frame = cap.read()
+    frameCount += frameSkipped+1
+    cap.set(1, frameCount)
     if ret:
         im1 = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         im2 = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
@@ -32,17 +34,30 @@ while(cap.isOpened()):
         featureDetectorType = "ORB"
         if featureDetectorType is "SIFT":
             detector = cv2.xfeatures2d.SIFT_create()
-            kp1, des1 = detector.detectAndCompute(im1, None)
-            kp2, des2 = detector.detectAndCompute(im2, None)
+            kp1 = detector.detect(im1)
+            kp2 = detector.detect(im2)
         elif featureDetectorType is "SURF":
             detector = cv2.xfeatures2d.SURF_create()
-            kp1, des1 = detector.detectAndCompute(im1, None)
-            kp2, des2 = detector.detectAndCompute(im2, None)
+            kp1 = detector.detect(im1)
+            kp2 = detector.detect(im2)
         elif featureDetectorType is "ORB":
             detector = cv2.ORB_create(nfeatures=1500)
-            kp1, des1 = detector.detectAndCompute(im1, None)
-            kp2, des2 = detector.detectAndCompute(im2, None)
+            kp1 = detector.detect(im1)
+            kp2 = detector.detect(im2)
 
+        featureDescriptorType = "ORB"
+        if featureDescriptorType is "SIFT":
+            descriptor = cv2.xfeatures2d.SIFT_create()
+            kp1, des1 = detector.compute(im1, kp1)
+            kp2, des2 = detector.compute(im2, kp2)
+        elif featureDescriptorType is "SURF":
+            descriptor = cv2.xfeatures2d.SURF_create()
+            kp1, des1 = detector.compute(im1, kp1)
+            kp2, des2 = detector.compute(im2, kp2)
+        elif featureDescriptorType is "ORB":
+            descriptor = cv2.ORB_create(nfeatures=1500)
+            kp1, des1 = detector.compute(im1, kp1)
+            kp2, des2 = detector.compute(im2, kp2)
 
         #some magic with prev_frame
 
@@ -107,6 +122,7 @@ while(cap.isOpened()):
         cv2.imshow("absDiff", im2Reg)
     else:
         print('Could not read frame')
+        cap.release()
 
     if cv2.waitKey(100) & 0xFF == ord('q'):
         break
