@@ -2,8 +2,9 @@ import cv2
 import numpy as np
 
 
-cap = cv2.VideoCapture('Study clip 017.mpg')
+cap = cv2.VideoCapture('Study clip 057.mpg')
 ret, frame = cap.read()
+frameCount = 0
 
 # Default resolutions of the frame are obtained.The default resolutions are system dependent.
 # We convert the resolutions from float to integer.
@@ -17,6 +18,7 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
 
 while(cap.isOpened()):
+    frameSkipped = 5
     prev_frame = frame[:]
     ret, frame = cap.read()
     if ret:
@@ -27,13 +29,17 @@ while(cap.isOpened()):
         #im2 = cv2.equalizeHist(im1)
 
         #detect key feature points
-        featureDetectorType = "SURF"
+        featureDetectorType = "ORB"
         if featureDetectorType is "SIFT":
             detector = cv2.xfeatures2d.SIFT_create()
             kp1, des1 = detector.detectAndCompute(im1, None)
             kp2, des2 = detector.detectAndCompute(im2, None)
         elif featureDetectorType is "SURF":
             detector = cv2.xfeatures2d.SURF_create()
+            kp1, des1 = detector.detectAndCompute(im1, None)
+            kp2, des2 = detector.detectAndCompute(im2, None)
+        elif featureDetectorType is "ORB":
+            detector = cv2.ORB_create(nfeatures=1500)
             kp1, des1 = detector.detectAndCompute(im1, None)
             kp2, des2 = detector.detectAndCompute(im2, None)
 
