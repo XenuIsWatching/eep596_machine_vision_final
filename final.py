@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 
-cap = cv2.VideoCapture('Study clip 057.mpg')
+cap = cv2.VideoCapture('Study clip 017.mpg')
 ret, frame = cap.read()
 
 # Default resolutions of the frame are obtained.The default resolutions are system dependent.
@@ -23,44 +23,59 @@ while(cap.isOpened()):
         im1 = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         im2 = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
 
+        #im1 = cv2.equalizeHist(im1)
+        #im2 = cv2.equalizeHist(im1)
+
         #detect key feature points
-        sift = cv2.xfeatures2d.SIFT_create()
-        kp1, des1 = sift.detectAndCompute(im1, None)
-        kp2, des2 = sift.detectAndCompute(im2, None)
+        featureDetectorType = "SURF"
+        if featureDetectorType is "SIFT":
+            detector = cv2.xfeatures2d.SIFT_create()
+            kp1, des1 = detector.detectAndCompute(im1, None)
+            kp2, des2 = detector.detectAndCompute(im2, None)
+        elif featureDetectorType is "SURF":
+            detector = cv2.xfeatures2d.SURF_create()
+            kp1, des1 = detector.detectAndCompute(im1, None)
+            kp2, des2 = detector.detectAndCompute(im2, None)
+
 
         #some magic with prev_frame
 
-
         # BFMatcher with default params
-        bf = cv2.BFMatcher()
-        matches = bf.knnMatch(des1, des2, k=2)
-        # Apply ratio test
-        good = []
-        for m, n in matches:
-            if m.distance < 0.85 * n.distance:
-                good.append(m)
+        matchType = "knn"
+        if matchType is "knn":
+            bf = cv2.BFMatcher()
+            matchesPrevToCurr = bf.knnMatch(des2, des1, k=2)
+            matchesCurrToPrev = bf.knnMatch(des1, des2, k=2)
 
-        #matches = bf.match(des1, des2)
-        # Sort matches by score
-        #matches.sort(key=lambda x: x.distance, reverse=False)
+            # Apply ratio test
+            good = []
+            for m, n in matchesCurrToPrev:
+                if m.distance < 0.70 * n.distance:
+                    good.append(m)
 
-        # Remove not so good matches
-        #numGoodMatches = int(len(matches) * GOOD_MATCH_PERCENT)
-        #matches = matches[:numGoodMatches]
+            points1 = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+            points2 = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
 
-        # Draw top matches
-        #imMatches = cv2.drawMatches(im1, kp1, im2, kp2, matches, None)
+        elif matchType is "normal":
+            matches = bf.match(des1, des2)
+            # Sort matches by score
+            matches.sort(key=lambda x: x.distance, reverse=False)
 
-        # Extract location of good matches
-        #points1 = np.zeros((len(matches), 2), dtype=np.float32)
-        #points2 = np.zeros((len(matches), 2), dtype=np.float32)
+            # Remove not so good matches
+            numGoodMatches = int(len(matches) * 0.15)
+            matches = matches[:numGoodMatches]
 
-        #for i, match in enumerate(matches):
-        #    points1[i, :] = kp1[match.queryIdx].pt
-        #    points2[i, :] = kp2[match.trainIdx].pt
+            # Draw top matches
+            imMatches = cv2.drawMatches(im1, kp1, im2, kp2, matches, None)
 
-        points1 = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-        points2 = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+            # Extract location of good matches
+            points1 = np.zeros((len(matches), 2), dtype=np.float32)
+            points2 = np.zeros((len(matches), 2), dtype=np.float32)
+
+            for i, match in enumerate(matches):
+                points1[i, :] = kp1[match.queryIdx].pt
+                points2[i, :] = kp2[match.trainIdx].pt
+
         # Find homography
         h, mask = cv2.findHomography(points1, points2, cv2.RANSAC,3.0)
 
@@ -73,11 +88,15 @@ while(cap.isOpened()):
 
         cv2.imshow("matches.jpg", imMatches)
 
-        out.write(im1Reg)
+
 
         cv2.imshow("grayframe", im2Reg)
 
         cv2.absdiff(im2Reg, im2, im2Reg)
+        reb, im2Thresh = cv2.threshold(im2Reg, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        cv2.imshow("result", im2Thresh)
+
+        out.write(im2Reg)
 
         cv2.imshow("absDiff", im2Reg)
     else:
