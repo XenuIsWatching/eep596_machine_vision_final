@@ -1,8 +1,9 @@
 import cv2
 import numpy as np
+import imutils
 
 
-cap = cv2.VideoCapture('Study clip 057.mpg')
+cap = cv2.VideoCapture('Study clip 017.mpg')
 ret, frame = cap.read()
 frameCount = 0
 
@@ -18,20 +19,22 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
 
 while(cap.isOpened()):
-    frameSkipped = 2
+    frameSkipped = 15
     prev_frame = frame[:]
     ret, frame = cap.read()
     frameCount += frameSkipped+1
     cap.set(1, frameCount)
     if ret:
         im1 = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        #im1 = cv2.GaussianBlur(im1, (21, 21), 0)
         im2 = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        #im2 = cv2.GaussianBlur(im2, (21, 21), 0)
 
         #im1 = cv2.equalizeHist(im1)
         #im2 = cv2.equalizeHist(im1)
 
         #detect key feature points
-        featureDetectorType = "ORB"
+        featureDetectorType = "SIFT"
         if featureDetectorType is "SIFT":
             detector = cv2.xfeatures2d.SIFT_create()
             kp1 = detector.detect(im1)
@@ -44,8 +47,10 @@ while(cap.isOpened()):
             detector = cv2.ORB_create(nfeatures=1500)
             kp1 = detector.detect(im1)
             kp2 = detector.detect(im2)
+        elif featureDetectorType is "BRISK":
+            detector = cv2.BRISK_create()
 
-        featureDescriptorType = "ORB"
+        featureDescriptorType = "SIFT"
         if featureDescriptorType is "SIFT":
             descriptor = cv2.xfeatures2d.SIFT_create()
             kp1, des1 = detector.compute(im1, kp1)
@@ -71,13 +76,16 @@ while(cap.isOpened()):
             # Apply ratio test
             good = []
             for m, n in matchesCurrToPrev:
-                if m.distance < 0.70 * n.distance:
+                if m.distance < 0.75 * n.distance:
                     good.append(m)
 
             points1 = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
             points2 = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
 
+            imMatches = cv2.drawMatchesKnn(im1, kp1, im2, kp2, [good], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
         elif matchType is "normal":
+            bf = cv2.BFMatcher()
             matches = bf.match(des1, des2)
             # Sort matches by score
             matches.sort(key=lambda x: x.distance, reverse=False)
@@ -85,9 +93,6 @@ while(cap.isOpened()):
             # Remove not so good matches
             numGoodMatches = int(len(matches) * 0.15)
             matches = matches[:numGoodMatches]
-
-            # Draw top matches
-            imMatches = cv2.drawMatches(im1, kp1, im2, kp2, matches, None)
 
             # Extract location of good matches
             points1 = np.zeros((len(matches), 2), dtype=np.float32)
@@ -97,29 +102,60 @@ while(cap.isOpened()):
                 points1[i, :] = kp1[match.queryIdx].pt
                 points2[i, :] = kp2[match.trainIdx].pt
 
+            # Draw top matches
+            imMatches = cv2.drawMatches(im1, kp1, im2, kp2, matches, None)
+
+
         # Find homography
-        h, mask = cv2.findHomography(points1, points2, cv2.RANSAC,3.0)
+        h, mask = cv2.findHomography(points2, points1, cv2.RANSAC, 3.0)
 
         # Use homography
         height, width = im2.shape
-        im1Reg = cv2.warpPerspective(im1, h, (width, height), flags=cv2.INTER_LINEAR+cv2.WARP_FILL_OUTLIERS)
+        #im1Reg = cv2.warpPerspective(im1, h, (width, height), flags=cv2.INTER_LINEAR+cv2.WARP_FILL_OUTLIERS)
         im2Reg = cv2.warpPerspective(im2, h, (width, height), flags=cv2.INTER_LINEAR+cv2.WARP_FILL_OUTLIERS)
 
-        imMatches = cv2.drawMatchesKnn(im1, kp1, im2, kp2, [good], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+
+        #im2Reg = cv2.GaussianBlur(im2Reg, (21, 21), 0)
+        #im1 = cv2.GaussianBlur(im1, (21, 21), 0)
+
+        #remove background
+        im2Diff = cv2.absdiff(im2Reg, im1)
+
+        _, im2Thresh = cv2.threshold(im2Diff, 25, 255, cv2.THRESH_BINARY)
+        #im2Thresh = cv2.adaptiveThreshold(im2Diff, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 115, 1)
+
+        #define dilate to fo fill in holes
+        im2Dilate = cv2.dilate(im2Thresh, None, iterations=2)
+
+        contours = cv2.findContours(im2Thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = cv2.findContours(im2Dilate.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = imutils.grab_contours(cnts)
+
+        # loop over the contours
+        for c in cnts:
+            # if the contour is too small, ignore it
+            if cv2.contourArea(c) < 80:
+                continue
+
+            # compute the bounding box for the contour, draw it on the frame,
+            # and update the text
+            (x, y, w, h) = cv2.boundingRect(c)
+            cv2.rectangle(im1, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        #cv2.imshow("new img", new_img)
 
         cv2.imshow("matches.jpg", imMatches)
 
-
-
         cv2.imshow("grayframe", im2Reg)
 
-        cv2.absdiff(im2Reg, im2, im2Reg)
-        reb, im2Thresh = cv2.threshold(im2Reg, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-        cv2.imshow("result", im2Thresh)
+        cv2.imshow("diff", im2Diff)
 
-        out.write(im2Reg)
+        cv2.imshow("threshold", im2Thresh)
 
-        cv2.imshow("absDiff", im2Reg)
+        cv2.imshow("dilate", im2Dilate)
+
+        cv2.imshow("blarg", im1)
+
     else:
         print('Could not read frame')
         cap.release()
