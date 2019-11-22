@@ -75,6 +75,39 @@ def display_flow(img, flow, stride=1000):
         else:
             return 0
 
+def draw_flow(img, flow, step=16):
+    h, w = img.shape[:2]
+    y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2,-1).astype(int)
+    fx, fy = flow[y,x].T
+    lines = np.vstack([x, y, x+fx, y+fy]).T.reshape(-1, 2, 2)
+    lines = np.int32(lines + 0.5)
+    vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    cv2.polylines(vis, lines, 0, (0, 255, 0))
+    for (x1, y1), (_x2, _y2) in lines:
+        cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)
+    return vis
+
+def draw_hsv(flow):
+    h, w = flow.shape[:2]
+    fx, fy = flow[:,:,0], flow[:,:,1]
+    ang = np.arctan2(fy, fx) + np.pi
+    v = np.sqrt(fx*fx+fy*fy)
+    hsv = np.zeros((h, w, 3), np.uint8)
+    hsv[...,0] = ang*(180/np.pi/2)
+    hsv[...,1] = 255
+    hsv[...,2] = np.minimum(v*4, 255)
+    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    return bgr
+
+
+def warp_flow(img, flow):
+    h, w = flow.shape[:2]
+    flow = -flow
+    flow[:,:,0] += np.arange(w)
+    flow[:,:,1] += np.arange(h)[:,np.newaxis]
+    res = cv.remap(img, flow, None, cv.INTER_LINEAR)
+    return res
+
 # Create some random colors
 color = np.random.randint(0,255,(100,3))
 
@@ -154,7 +187,7 @@ while(cap.isOpened()):
 
         # calculate optical flow
         if True:
-            flowType = "LK1"
+            flowType = "OF"
             if flowType is "LK1":
                 vis = frame.copy()
                 if p0 is not None:
@@ -226,6 +259,10 @@ while(cap.isOpened()):
                     #mask = cv2.line(mask, (a, b), (c, d), color[i].tolist(), 2)
                     frame = cv2.circle(frame, (a, b), 5, color[i].tolist(), -1)
                     cv2.imshow("frame", frame)
+            elif flowType is "OF":
+                flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+                cv2.imshow('flow', draw_flow(im1, flow))
+
             else:
                 if init_flow is True:
                     opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
