@@ -2,7 +2,14 @@ import cv2
 import numpy as np
 import imutils
 from scipy import signal
+import math
 
+def checkedTrace(img0, img1, p0, back_threshold = 1.0):
+    p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
+    p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
+    d = abs(p0-p0r).reshape(-1, 2).max(-1)
+    status = d < back_threshold
+    return p1, status
 
 def optical_flow(I1g, I2g, window_size, tau=1e-2):
     kernel_x = np.array([[-1., 1.], [-1., 1.]])
@@ -71,6 +78,9 @@ def display_flow(img, flow, stride=1000):
 # Create some random colors
 color = np.random.randint(0,255,(100,3))
 
+green = (0, 255, 0)
+red = (0, 0, 255)
+
 init_flow = True
 croppedFirst = True
 first = True
@@ -80,20 +90,20 @@ if stitched is True:
 else:
     stitchedFirst = False
 
-# params for ShiTomasi corner detection
-feature_params = dict( maxCorners = 100,
-                       qualityLevel = 0.3,
-                       minDistance = 7,
-                       blockSize = 7 )
-
-# Parameters for lucas kanade optical flow
-lk_params = dict( winSize  = (15,15),
-                  maxLevel = 2,
+lk_params = dict( winSize  = (19, 19),
+                  maxLevel = 4,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
-cap = cv2.VideoCapture('Study clip 017.mpg')
+feature_params = dict( maxCorners = 1000,
+                       qualityLevel = 0.001,
+                       minDistance = 2,
+                       blockSize = 25 )
+
+cap = cv2.VideoCapture('Study clip 014.mpg')
 ret, frame = cap.read()
 frameCount = 0
+
+p0 = None
 
 # Default resolutions of the frame are obtained.The default resolutions are system dependent.
 # We convert the resolutions from float to integer.
@@ -104,15 +114,18 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 # Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
 out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
 
+#for y in range(0, frame_height - 1, 1):
+#    for x in range(0, frame_width - 1, 1):
+#        p0 = (y, x)
+
 while(cap.isOpened()):
-    frameSkipped = 0
+    frameSkipped = 1
     prev_frame = frame[:]
     ret, frame = cap.read()
     frameCount += frameSkipped+1
     cap.set(1, frameCount)
     if ret:
         im1 = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        #im1 = cv2.GaussianBlur(im1, (21, 21), 0)
 
         if stitched is True:
             if stitchedFirst is True:
@@ -129,24 +142,120 @@ while(cap.isOpened()):
         #im1 = cv2.equalizeHist(im1)
         #im2 = cv2.equalizeHist(im1)
 
-        im1 = cv2.bilateralFilter(im1, 5, 80, 80)
-        im2 = cv2.bilateralFilter(im2, 5, 80, 80)
+        #im1 = cv2.normalize(im1, 0, 255, cv2.NORM_MINMAX)
+        #im2 = cv2.normalize(im2, 0, 255, cv2.NORM_MINMAX)
+
+        im1 = cv2.bilateralFilter(im1, 5, 100, 100)
+        im2 = cv2.bilateralFilter(im2, 5, 100, 100)
+
+        if first is True:
+            #p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
+            first = False
 
         # calculate optical flow
         if True:
-            if init_flow is True:
-                opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
-                init_flow = False
+            flowType = "LK1"
+            if flowType is "LK1":
+                vis = frame.copy()
+                if p0 is not None:
+                    p2, trace_status = checkedTrace(im2, im1, p1)
+
+                    p1 = p2[trace_status].copy()
+                    p0 = p0[trace_status].copy()
+
+
+                    if len(p0) < 4:
+                        p0 = None
+                        continue
+                    H, status = cv2.findHomography(p0, p1, (0, cv2.RANSAC)[True], 10.0)
+                    h, w = frame.shape[:2]
+                    overlay = cv2.warpPerspective(prev_frame, H, (w, h))
+                    vis = cv2.addWeighted(vis, 0.5, overlay, 0.5, 0.0)
+
+                    flowVectorLength = []
+                    for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], status[:, 0]):
+                        if good:
+                            cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
+                        flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
+                        vis = cv2.circle(vis, (x1, y1), 5, (red, green)[good], -1)
+                    #draw_str(vis, (20, 20), 'track count: %d' % len(self.p1))
+                    #if .use_ransac:
+                        #draw_str(vis, (20, 40), 'RANSAC')
+
+                    #flowVectorLength = []
+                    #for i, (p1, p0) in enumerate(zip(p1, p0)):
+                        #a, b = p0[i].ravel()
+                        #c, d = p1[i].ravel()
+                        #flowVectorLength.append(math.sqrt((c-a)**2 + (d-b)**2))
+
+                    flowVectorLength_average = np.mean(flowVectorLength)
+                    flowVectorLength_stdev = np.std(flowVectorLength)
+                    off = frame.copy()
+
+                    i = 0
+                    for (x1, y1), good in zip(p1[:, 0], status[:, 0]):
+                        if (flowVectorLength[i] > (flowVectorLength_average + flowVectorLength_stdev*0.8)):
+                            cv2.circle(off, (x1, y1), 3, (0, 255, 0), -1)
+                        elif (flowVectorLength[i] < (flowVectorLength_average - flowVectorLength_stdev*0.8)):
+                            cv2.circle(off, (x1, y1), 3, (0, 255, 0), -1)
+                        i = i + 1
+                    cv2.imshow("off", off)
+
+                    p0 = cv2.goodFeaturesToTrack(im1, **feature_params)
+                    p1 = p0
+                else:
+                    p0 = cv2.goodFeaturesToTrack(im1, **feature_params)
+                    p1 = p0
+                    if p0 is not None:
+                        for x, y in p0[:, 0]:
+                            cv2.circle(vis, (x, y), 10, green, -1)
+                        #draw_str(vis, (20, 20), 'feature count: %d' % len(p))
+
+                cv2.imshow('lk_homography', vis)
+            elif flowType is "LK":
+                p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, p0, None, **lk_params)
+                # Select good points
+                good_new = p1[st == 1]
+                good_old = p0[st == 1]
+
+                flowVectorLength = []
+                for i, (new, old) in enumerate(zip(good_new, good_old)):
+                    a, b = new.ravel()
+                    c, d = old.ravel()
+                    flowVectorLength.append(math.sqrt((c-a)**2 + (d-b)**2))
+                    #mask = cv2.line(mask, (a, b), (c, d), color[i].tolist(), 2)
+                    frame = cv2.circle(frame, (a, b), 5, color[i].tolist(), -1)
+                    cv2.imshow("frame", frame)
             else:
-                opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1,
-                                                        cv2.OPTFLOW_USE_INITIAL_FLOW)
-            display_flow(frame, opt_flow)
-            mag, ang = cv2.cartToPolar(opt_flow[..., 0], opt_flow[..., 1])
-            mag_avg = sum(mag) / len(mag)
-            mag_std = stdev(mag)
-            for i in mag:
-                if i < mag_avg + mag_std:
-                    break
+                if init_flow is True:
+                    opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+                    init_flow = False
+                else:
+                    opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1,
+                                                            cv2.OPTFLOW_USE_INITIAL_FLOW)
+                display_flow(frame, opt_flow)
+                flowVectorLength = []
+                for y in range(0, opt_flow.shape[0] - 1, 1):
+                    for x in range(0, opt_flow.shape[1] - 1, 1):
+                        flowVectorLength.append(math.sqrt(opt_flow[y,x,0]**2 + opt_flow[y,x,1]**2))
+
+                flowVectorLength_average = np.mean(flowVectorLength)
+                flowVectorLength_stdev = np.std(flowVectorLength)
+                off = frame.copy()
+
+                for y in range(0, opt_flow.shape[0] - 1, 1):
+                    for x in range(0, opt_flow.shape[1] - 1, 1):
+                        if (flowVectorLength[y* (opt_flow.shape[1]-1) + x] > (flowVectorLength_average + flowVectorLength_stdev)):
+                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
+                        elif (flowVectorLength[y* (opt_flow.shape[1]-1) + x] < (flowVectorLength_average - flowVectorLength_stdev)):
+                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
+                cv2.imshow("off",off)
+            #mag, ang = cv2.cartToPolar(opt_flow[..., 0], opt_flow[..., 1])
+            #mag_avg = sum(mag) / len(mag)
+            #mag_std = stdev(mag)
+            #for i in mag:
+            #    if i < mag_avg + mag_std:
+            #        break
         else:
             f1, t1, s1 = 0, 260, 10
             f2, t2, s2 = 0, 240, 10
