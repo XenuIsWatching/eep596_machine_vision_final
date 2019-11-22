@@ -3,6 +3,7 @@ import numpy as np
 import imutils
 from scipy import signal
 import math
+from matplotlib import pyplot as plt
 
 def checkedTrace(img0, img1, p0, back_threshold = 1.0):
     p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
@@ -178,12 +179,12 @@ while(cap.isOpened()):
         #im1 = cv2.normalize(im1, 0, 255, cv2.NORM_MINMAX)
         #im2 = cv2.normalize(im2, 0, 255, cv2.NORM_MINMAX)
 
-        im1 = cv2.bilateralFilter(im1, 5, 100, 100)
-        im2 = cv2.bilateralFilter(im2, 5, 100, 100)
+        #im1 = cv2.bilateralFilter(im1, 10, 80, 80)
+        #im2 = cv2.bilateralFilter(im2, 10, 80, 80)
 
-        if first is True:
+        #if first is True:
             #p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
-            first = False
+            #first = False
 
         # calculate optical flow
         if True:
@@ -260,8 +261,45 @@ while(cap.isOpened()):
                     frame = cv2.circle(frame, (a, b), 5, color[i].tolist(), -1)
                     cv2.imshow("frame", frame)
             elif flowType is "OF":
-                flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-                cv2.imshow('flow', draw_flow(im1, flow))
+                opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+                cv2.imshow('flow', draw_flow(im1, opt_flow))
+                flowVectorLength = []
+                for y in range(0, opt_flow.shape[0] - 1, 1):
+                    for x in range(0, opt_flow.shape[1] - 1, 1):
+                        flowVectorLength.append(math.sqrt(opt_flow[y, x, 0] ** 2 + opt_flow[y, x, 1] ** 2))
+
+                flowVectorLength_average = np.mean(flowVectorLength)
+                flowVectorLength_stdev = np.std(flowVectorLength)
+                off = frame.copy()
+
+                for y in range(0, opt_flow.shape[0] - 1, 1):
+                    for x in range(0, opt_flow.shape[1] - 1, 1):
+                        if (flowVectorLength[y * (opt_flow.shape[1] - 1) + x] > (
+                                flowVectorLength_average + flowVectorLength_stdev)):
+                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
+                        elif (flowVectorLength[y * (opt_flow.shape[1] - 1) + x] < (
+                                flowVectorLength_average - flowVectorLength_stdev)):
+                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
+                cv2.imshow("off", off)
+
+                Z = opt_flow.reshape((-1, 2))
+
+                # convert to np.float32
+                Z = np.float32(Z)
+
+                criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+                ret, label, center = cv2.kmeans(Z, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+
+                # Now separate the data, Note the flatten()
+                A = Z[label.ravel() == 0]
+                B = Z[label.ravel() == 1]
+
+                # Plot the data
+                plt.scatter(A[:, 0], A[:, 1])
+                plt.scatter(B[:, 0], B[:, 1], c='r')
+                plt.sca./;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;tter(center[:, 0], center[:, 1], s=80, c='y', marker='s')
+                plt.xlabel('Mag'), plt.ylabel('Vec')
+                plt.show()
 
             else:
                 if init_flow is True:
