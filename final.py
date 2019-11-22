@@ -105,7 +105,7 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
 
 while(cap.isOpened()):
-    frameSkipped = 1
+    frameSkipped = 0
     prev_frame = frame[:]
     ret, frame = cap.read()
     frameCount += frameSkipped+1
@@ -129,6 +129,9 @@ while(cap.isOpened()):
         #im1 = cv2.equalizeHist(im1)
         #im2 = cv2.equalizeHist(im1)
 
+        im1 = cv2.bilateralFilter(im1, 5, 80, 80)
+        im2 = cv2.bilateralFilter(im2, 5, 80, 80)
+
         # calculate optical flow
         if True:
             if init_flow is True:
@@ -138,6 +141,12 @@ while(cap.isOpened()):
                 opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1,
                                                         cv2.OPTFLOW_USE_INITIAL_FLOW)
             display_flow(frame, opt_flow)
+            mag, ang = cv2.cartToPolar(opt_flow[..., 0], opt_flow[..., 1])
+            mag_avg = sum(mag) / len(mag)
+            mag_std = stdev(mag)
+            for i in mag:
+                if i < mag_avg + mag_std:
+                    break
         else:
             f1, t1, s1 = 0, 260, 10
             f2, t2, s2 = 0, 240, 10
