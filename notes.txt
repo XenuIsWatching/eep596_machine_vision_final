@@ -1,0 +1,16 @@
+To do:
+11/22/2019 (Fri):
+1. find and organize data folder, load and visualize out all imgs
+2. feed imgs to 2 layer cnn and test result
+3. Learnt unknown concepts from Questions
+
+11/23-11/24 (Sat,Sun):
+1. Figure out a way to return obj type and pass it to moving obj
+2. add more layers (deeper network), higher resolution img (300*300)
+3. Use Dilation and depth conv
+
+Questions:
+  1. What is tensor?
+  2. in class CNN, how to determin what kind of conv kernels each layer is using?
+  3. epoch, criterion, optim.SGD, cross-entropy loss?
+  4. Dilation and depth conv?
