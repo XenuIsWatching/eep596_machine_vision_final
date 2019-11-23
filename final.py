@@ -112,6 +112,8 @@ def warp_flow(img, flow):
 # Create some random colors
 color = np.random.randint(0,255,(100,3))
 
+tracks = []
+
 green = (0, 255, 0)
 red = (0, 0, 255)
 
@@ -179,8 +181,8 @@ while(cap.isOpened()):
         #im1 = cv2.normalize(im1, 0, 255, cv2.NORM_MINMAX)
         #im2 = cv2.normalize(im2, 0, 255, cv2.NORM_MINMAX)
 
-        #im1 = cv2.bilateralFilter(im1, 10, 80, 80)
-        #im2 = cv2.bilateralFilter(im2, 10, 80, 80)
+        im1 = cv2.bilateralFilter(im1, 10, 80, 80)
+        im2 = cv2.bilateralFilter(im2, 10, 80, 80)
 
         #if first is True:
             #p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
@@ -272,34 +274,126 @@ while(cap.isOpened()):
                 flowVectorLength_stdev = np.std(flowVectorLength)
                 off = frame.copy()
 
+
+                mask = np.zeros_like(im1)
                 for y in range(0, opt_flow.shape[0] - 1, 1):
                     for x in range(0, opt_flow.shape[1] - 1, 1):
                         if (flowVectorLength[y * (opt_flow.shape[1] - 1) + x] > (
                                 flowVectorLength_average + flowVectorLength_stdev)):
-                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
+                            cv2.circle(mask, (x, y), 10, 255, -1)
                         elif (flowVectorLength[y * (opt_flow.shape[1] - 1) + x] < (
                                 flowVectorLength_average - flowVectorLength_stdev)):
-                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
-                cv2.imshow("off", off)
+                            cv2.circle(mask, (x, y), 10, 255, -1)
 
-                Z = opt_flow.reshape((-1, 2))
+                # define dilate to fo fill in holes
+                mask = cv2.dilate(mask, None, iterations=2)
+
+                contours = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = imutils.grab_contours(cnts)
+
+                # loop over the contours
+                box = frame.copy()
+                for c in cnts:
+                    # if the contour is too small, ignore it
+                    if cv2.contourArea(c) < 200:
+                        continue
+
+                    # compute the bounding box for the contour, draw it on the frame,
+                    # and update the text
+                    (x, y, w, h) = cv2.boundingRect(c)
+                    cv2.rectangle(box, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+                cv2.imshow("mask", mask)
+                cv2.imshow("box", box)
+
+                kmeans = True
+                if kmeans is True:
+                    Z = opt_flow.reshape((-1, 2))
+
+                    # convert to np.float32
+                    Z = np.float32(Z)
+
+                    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+                    K = 2
+                    ret, label, center = cv2.kmeans(Z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+                    center = np.uint8(center)
+                    res = cv2.normalize(label.reshape(im1), 0, 255)
+                    result_image = res
+
+                    cv2.imshow("km", result_image)
+
+            elif flowType is "TR":
+                flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+                # prevgray = frame_gray
+
+                Z = flow.reshape((-1, 2))
 
                 # convert to np.float32
                 Z = np.float32(Z)
 
+                # define criteria, number of clusters(K) and apply kmeans()
                 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-                ret, label, center = cv2.kmeans(Z, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+                K = 2
+                ret, label, center = cv2.kmeans(Z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
 
-                # Now separate the data, Note the flatten()
-                A = Z[label.ravel() == 0]
-                B = Z[label.ravel() == 1]
+                # Now convert back into uint8, and make original image
+                center = np.uint8(center)
+                res = center[label.flatten()]
 
-                # Plot the data
-                plt.scatter(A[:, 0], A[:, 1])
-                plt.scatter(B[:, 0], B[:, 1], c='r')
-                plt.sca./;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;/;tter(center[:, 0], center[:, 1], s=80, c='y', marker='s')
-                plt.xlabel('Mag'), plt.ylabel('Vec')
-                plt.show()
+                res = res[:, 0]
+                res = res.reshape((im1.shape))
+                new_res = res
+
+                # frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                vis = frame.copy()
+
+                vis1 = frame.copy()
+
+                if len(tracks) > 0:
+                    img0, img1 = im2, res
+                    p0 = np.float32([tr[-1] for tr in tracks]).reshape(-1, 1, 2)
+                    p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
+                    p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
+                    d = abs(p0 - p0r).reshape(-1, 2).max(-1)
+                    good = d < 1
+                    new_tracks = []
+                    for tr, (x, y), good_flag in zip(tracks, p1.reshape(-1, 2), good):
+                        if not good_flag:
+                            continue
+                        tr.append((x, y))
+                        if len(tr) > 15:
+                            del tr[0]
+                        new_tracks.append(tr)
+                        cv2.circle(vis, (x, y), 2, (0, 255, 0), -1)
+                    tracks = new_tracks
+                    cv2.polylines(vis, [np.int32(tr) for tr in tracks], False, (0, 255, 0))
+                    #draw_str(vis, (20, 20), 'track count: %d' % len(tracks))
+
+                mask = np.zeros_like(res)
+                mask[:] = 255
+                for x, y in [np.int32(tr[-1]) for tr in tracks]:
+                    cv2.circle(mask, (x, y), 5, 0, -1)
+                p = cv2.goodFeaturesToTrack(res, mask=mask, **feature_params)
+                if p is not None:
+                    for x, y in np.float32(p).reshape(-1, 2):
+                        tracks.append([(x, y)])
+
+                # regions = blobdet.detect(new_res)
+
+                # if regions!=[]:
+                #   cv2.drawKeypoints(res,regions,vis1, (0,255, 0),4)
+
+                # prev_res = res
+                cv2.imshow('lk_track', vis)
+                cv2.imshow('blob', vis1)
+                cv2.imshow('flow', draw_flow(im1, flow))
+                cv2.imshow('res2', res)
+
+                prevgray2c = cv2.cvtColor(im2, cv2.COLOR_GRAY2BGR)
+
+                allf = np.hstack((vis, prevgray2c))
+                cv2.imshow('all', allf)
 
             else:
                 if init_flow is True:
