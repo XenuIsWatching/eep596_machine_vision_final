@@ -195,4 +195,13 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# ignore all data files
+*.jpg
+*.m
+*.mat
+train_perfect_preds.txt
+*.csv
+create_landmark_dataset.py
+data/devkit/README.txt
+
 # End of https://www.gitignore.io/api/python,pycharm
