@@ -135,7 +135,7 @@ feature_params = dict( maxCorners = 1000,
                        minDistance = 2,
                        blockSize = 25 )
 
-cap = cv2.VideoCapture('Study clip 014.mpg')
+cap = cv2.VideoCapture('video/Study clip 014.mpg')
 ret, frame = cap.read()
 frameCount = 0
 
