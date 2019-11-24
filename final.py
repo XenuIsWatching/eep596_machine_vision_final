@@ -77,6 +77,13 @@ def display_flow(img, flow, stride=1000):
             return 0
 
 def draw_flow(img, flow, step=16):
+    """
+    Taken from: https://github.com/opencv/opencv/blob/master/samples/python/opt_flow.py
+    :param img: Frame to draw the flow
+    :param flow: Flow vectors
+    :param step: Number of pixels each vector represents
+    :return: visualisation
+    """
     h, w = img.shape[:2]
     y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2,-1).astype(int)
     fx, fy = flow[y,x].T
@@ -135,7 +142,7 @@ feature_params = dict( maxCorners = 1000,
                        minDistance = 2,
                        blockSize = 25 )
 
-cap = cv2.VideoCapture('video/Study clip 014.mpg')
+cap = cv2.VideoCapture('video/Study clip 027.mpg')
 ret, frame = cap.read()
 frameCount = 0
 
@@ -146,6 +153,7 @@ p0 = None
 frame_width = int(cap.get(3))
 frame_height = int(cap.get(4))
 fps = cap.get(cv2.CAP_PROP_FPS)
+length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
 # Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
 out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
@@ -181,17 +189,15 @@ while(cap.isOpened()):
         #im1 = cv2.normalize(im1, 0, 255, cv2.NORM_MINMAX)
         #im2 = cv2.normalize(im2, 0, 255, cv2.NORM_MINMAX)
 
-        im1 = cv2.bilateralFilter(im1, 10, 80, 80)
-        im2 = cv2.bilateralFilter(im2, 10, 80, 80)
-
-        #if first is True:
-            #p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
-            #first = False
+        filterType = "bilateral"
+        if filterType is "bilateral":
+            im1 = cv2.bilateralFilter(im1, 10, 80, 80)
+            im2 = cv2.bilateralFilter(im2, 10, 80, 80)
 
         # calculate optical flow
         method = "optical"
         if method is "optical":
-            flowType = "OF"
+            flowType = "DLK"
             if flowType is "LK1":
                 vis = frame.copy()
                 if p0 is not None:
@@ -250,10 +256,20 @@ while(cap.isOpened()):
 
                 cv2.imshow('lk_homography', vis)
             elif flowType is "LK":
+
+                if first is True:
+                    p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
+
                 p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, p0, None, **lk_params)
                 # Select good points
                 good_new = p1[st == 1]
                 good_old = p0[st == 1]
+
+                # Flow vector calculated by subtracting new pixels by old pixels
+                flow = p1 - p0
+
+                vis = draw_flow(frame, flow, 16)
+                cv2.imshow('Dense LK', vis)
 
                 flowVectorLength = []
                 for i, (new, old) in enumerate(zip(good_new, good_old)):
@@ -263,7 +279,39 @@ while(cap.isOpened()):
                     #mask = cv2.line(mask, (a, b), (c, d), color[i].tolist(), 2)
                     frame = cv2.circle(frame, (a, b), 5, color[i].tolist(), -1)
                     cv2.imshow("frame", frame)
+            elif flowType is "DLK":
+                if first is True:
+                    # Create empty matrices to fill later
+                    bin_count = 10
+                    hist_magnitudes = np.zeros([bin_count, 1])
+                    bounds = np.zeros([bin_count, 2])
+
+                # Dense Lucas Kanade
+                flow_angles = flow_magnitudes = []
+                histogram_temp_mean = np.zeros(bin_count)
+
+                if frame is None:
+                    hist_magnitudes = hist_magnitudes / length
+                    break
+
+                # Create the old matrix to feed to LK, instead of goodFeaturesToTrack
+                all_pixels = np.nonzero(im1)
+                all_pixels = tuple(zip(*all_pixels))
+                all_pixels = np.vstack(all_pixels).reshape(-1, 1, 2).astype("float32")
+
+                # Calculate Optical Flow
+                p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, all_pixels, None, **lk_params)
+                all_pixels = all_pixels.reshape(frame_height, frame_width, 2)
+                p1 = p1.reshape(frame_height, frame_width, 2)
+
+                # Flow vector calculated by subtracting new pixels by old pixels
+                flow = p1 - all_pixels
+
+                vis = draw_flow(frame, flow, 16)
+                cv2.imshow('Dense LK', vis)
+
             elif flowType is "OF":
+                #Dense Optical Flow
                 opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 3, 15, 3, 5, 1.2, 0)
                 cv2.imshow('flow', draw_flow(im1, opt_flow))
                 flowVectorLength = []
@@ -542,7 +590,8 @@ while(cap.isOpened()):
                 cv2.arrowedLine(im1, tuple(pt), tuple(pt2), (255, 0, 0), 1)
             cv2.imshow("optical flow", im1)
         """
-
+        if first is True:
+            first = False
 
     else:
         print('Could not read frame')
