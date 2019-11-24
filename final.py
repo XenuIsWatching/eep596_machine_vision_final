@@ -189,7 +189,8 @@ while(cap.isOpened()):
             #first = False
 
         # calculate optical flow
-        if True:
+        method = "optical"
+        if method is "optical":
             flowType = "OF"
             if flowType is "LK1":
                 vis = frame.copy()
@@ -307,7 +308,7 @@ while(cap.isOpened()):
                 cv2.imshow("mask", mask)
                 cv2.imshow("box", box)
 
-                kmeans = True
+                kmeans = False
                 if kmeans is True:
                     Z = opt_flow.reshape((-1, 2))
 
@@ -425,6 +426,108 @@ while(cap.isOpened()):
             #for i in mag:
             #    if i < mag_avg + mag_std:
             #        break
+        elif method is "feature":
+            # detect key feature points
+            featureDetectorType = "ORB"
+            if featureDetectorType is "SIFT":
+                detector = cv2.xfeatures2d.SIFT_create()
+                kp1 = detector.detect(im1)
+                kp2 = detector.detect(im2)
+            elif featureDetectorType is "SURF":
+                detector = cv2.xfeatures2d.SURF_create()
+                kp1 = detector.detect(im1)
+                kp2 = detector.detect(im2)
+            elif featureDetectorType is "ORB":
+                detector = cv2.ORB_create(nfeatures=1500)
+                kp1 = detector.detect(im1)
+                kp2 = detector.detect(im2)
+            else:
+                assert (False, "Invalid Feature Detector")
+
+            featureDescriptorType = "ORB"
+            if featureDescriptorType is "SIFT":
+                descriptor = cv2.xfeatures2d.SIFT_create()
+                kp1, des1 = detector.compute(im1, kp1)
+                kp2, des2 = detector.compute(im2, kp2)
+            elif featureDescriptorType is "SURF":
+                descriptor = cv2.xfeatures2d.SURF_create()
+                kp1, des1 = detector.compute(im1, kp1)
+                kp2, des2 = detector.compute(im2, kp2)
+            elif featureDescriptorType is "ORB":
+                descriptor = cv2.ORB_create(nfeatures=1500)
+                kp1, des1 = detector.compute(im1, kp1)
+                kp2, des2 = detector.compute(im2, kp2)
+            else:
+                assert(False, "Invalid Feature Descriptor")
+
+            if first is True:
+                p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
+                # Create a mask image for drawing purposes
+                flowMask = np.zeros_like(im2)
+                first = False
+
+            # some magic with prev_frame
+
+            # BFMatcher with default params
+            matchType = "knn"
+            if matchType is "knn":
+                bf = cv2.BFMatcher()
+                matchesPrevToCurr = bf.knnMatch(des2, des1, k=2)
+                matchesCurrToPrev = bf.knnMatch(des1, des2, k=2)
+
+                # Apply ratio test
+                good = []
+                for m, n in matchesCurrToPrev:
+                    if m.distance < 0.5 * n.distance:
+                        good.append(m)
+
+                points1 = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+                points2 = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+
+                imMatches = cv2.drawMatchesKnn(im1, kp1, im2, kp2, [good], None,
+                                               flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+            elif matchType is "normal":
+                bf = cv2.BFMatcher()
+                matches = bf.match(des1, des2)
+                # Sort matches by score
+                matches.sort(key=lambda x: x.distance, reverse=False)
+
+                # Remove not so good matches
+                numGoodMatches = int(len(matches) * 0.15)
+                matches = matches[:numGoodMatches]
+
+                # Extract location of good matches
+                points1 = np.zeros((len(matches), 2), dtype=np.float32)
+                points2 = np.zeros((len(matches), 2), dtype=np.float32)
+
+                for i, match in enumerate(matches):
+                    points1[i, :] = kp1[match.queryIdx].pt
+                    points2[i, :] = kp2[match.trainIdx].pt
+
+                # Draw top matches
+                imMatches = cv2.drawMatches(im1, kp1, im2, kp2, matches, None)
+
+            else:
+                assert(False, "Invalid Match Type")
+
+            # Find homography
+            transformationType = "euclidian"
+            if transformationType is "homography":
+                h, mask = cv2.findHomography(points2, points1, cv2.RANSAC, 5.0)
+                height, width = im2.shape
+                im1Reg = cv2.warpPerspective(im1, h, (width, height), flags=cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
+                im2Reg = cv2.warpPerspective(im2, h, (width, height), flags=cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
+            elif transformationType is "euclidian":
+                m = cv2.estimateRigidTransform(points2, points1, fullAffine=False)
+                height, width = im2.shape
+                im1Reg = cv2.warpAffine(im1, m, (width, height))
+                im2Reg = cv2.warpAffine(im2, m, (width, height))
+            else:
+                assert(False, "Invalid Transformation")
+        else:
+            assert(False, "Invalid Method")
+        """
         else:
             f1, t1, s1 = 0, 260, 10
             f2, t2, s2 = 0, 240, 10
@@ -438,6 +541,7 @@ while(cap.isOpened()):
                 pt2 = (pt + uv).astype(np.int)
                 cv2.arrowedLine(im1, tuple(pt), tuple(pt2), (255, 0, 0), 1)
             cv2.imshow("optical flow", im1)
+        """
 
 
     else:
