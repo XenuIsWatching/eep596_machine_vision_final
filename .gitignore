@@ -212,5 +212,6 @@ data/devkit/README.txt
 !random_test1.jpg
 !00001.jpg
 !person_001.bmp
+Icon?
 
 # End of https://www.gitignore.io/api/python,pycharm
