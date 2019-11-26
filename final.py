@@ -137,12 +137,12 @@ lk_params = dict( winSize  = (19, 19),
                   maxLevel = 4,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
-feature_params = dict( maxCorners = 100,
+feature_params = dict( maxCorners = 150,
                        qualityLevel = 0.001,
-                       minDistance = 5,
+                       minDistance = 3,
                        blockSize = 19 )
 
-cap = cv2.VideoCapture('video/Study clip 037.mpg')
+cap = cv2.VideoCapture('video/Study clip 017.mpg')
 ret, frame = cap.read()
 frameCount = 0
 
@@ -163,7 +163,7 @@ out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps,
 #        p0 = (y, x)
 
 while(cap.isOpened()):
-    frameSkipped = 1
+    frameSkipped = 4
     prev_frame = frame[:]
     ret, frame = cap.read()
     frameCount += frameSkipped+1
@@ -191,8 +191,8 @@ while(cap.isOpened()):
 
         filterType = "bilateral"
         if filterType is "bilateral":
-            im1 = cv2.bilateralFilter(im1, 10, 80, 80)
-            im2 = cv2.bilateralFilter(im2, 10, 80, 80)
+            im1 = cv2.bilateralFilter(im1, 5, 20, 20)
+            im2 = cv2.bilateralFilter(im2, 5, 20, 20)
 
         # calculate optical flow
         method = "optical"
@@ -269,12 +269,14 @@ while(cap.isOpened()):
                 flowVectorLength = []
                 flowVectorLength_x = []
                 flowVectorLength_y = []
+                flowAngle = []
                 for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
                     if good:
                         cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
                     flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
                     flowVectorLength_x.append(x1 - x0)
                     flowVectorLength_y.append(y1 - y0)
+                    flowAngle = math.atan((y1 - y0) / (x1 - x0))
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
 
@@ -286,21 +288,63 @@ while(cap.isOpened()):
                 flowVectorLength_y_std = np.std(flowVectorLength_y)
                 mask = np.zeros_like(im1)
                 i = 0
+
+                outliers = []
+                inliers = []
+                std_tolerance = 1.0
                 for (x1, y1) in p1[:, 0]:
                     #if (flowVectorLength[i] > (flowVectorLength_average + flowVectorLength_std*1.2)):
-                    if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std)):
-                        cv2.circle(mask, (x1, y1), 10, 255, -1)
-                    elif (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std)):
-                        cv2.circle(mask, (x1, y1), 10, 255, -1)
+                    if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)):
+                        outliers.append([x1, y1])
+                    elif (flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance)):
+                        outliers.append([x1, y1])
+                    else:
+                        inliers.append([x1, y1])
                     i = i + 1
+
+                if len(outliers) < len(inliers):
+                    for (x1, y1) in outliers:
+                        cv2.circle(mask, (x1, y1), 10, 255, -1)
+                else:
+                    for (x1, y1) in inliers:
+                        cv2.circle(mask, (x1, y1), 10, 255, -1)
+
                 cv2.imshow("mask", mask)
 
+                kernel = np.ones((11, 11), np.uint8)
+                erosion = cv2.erode(mask, kernel, iterations=1)
+                cv2.imshow("erosion", erosion)
+
+                gradient = cv2.morphologyEx(erosion, cv2.MORPH_GRADIENT, kernel)
+                cv2.imshow("gradient", gradient)
+
+                # define dilate to fo fill in holes
+                dilate = cv2.dilate(mask, kernel, iterations=1)
+                cv2.imshow("dilate", dilate)
+
+                contours = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = imutils.grab_contours(cnts)
+
+                # loop over the contours
+                box = frame.copy()
+                for c in cnts:
+                    # if the contour is too small, ignore it
+                    if cv2.contourArea(c) < 500:
+                        continue
+
+                    # compute the bounding box for the contour, draw it on the frame,
+                    # and update the text
+                    (x, y, w, h) = cv2.boundingRect(c)
+                    cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
+
+                cv2.imshow("box", box)
 
                 p0 = p1
-                #if a point goes out of frame, remove it
+                #if a point goes out of frame or near edge, remove it
                 i = 0
                 for (x0, y0) in p0[:, 0]:
-                    if x0 >= frame_width or x0 < 0 or y0 >= frame_height or y0 < 0:
+                    if x0 >= frame_width*0.97 or x0 < frame_width*0.03 or y0 >= frame_height*0.97 or y0 < frame_height*0.03:
                         p0 = np.delete(p0, i, 0)
                     else:
                         i = i + 1
@@ -342,23 +386,30 @@ while(cap.isOpened()):
                 opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 3, 15, 3, 5, 1.2, 0)
                 cv2.imshow('flow', draw_flow(im1, opt_flow))
                 flowVectorLength = []
+                flowVectorLength_x = []
+                flowVectorLength_y = []
                 for y in range(0, opt_flow.shape[0] - 1, 1):
                     for x in range(0, opt_flow.shape[1] - 1, 1):
                         flowVectorLength.append(math.sqrt(opt_flow[y, x, 0] ** 2 + opt_flow[y, x, 1] ** 2))
+                        flowVectorLength_x.append(x1 - x0)
+                        flowVectorLength_y.append(y1 - y0)
 
                 flowVectorLength_average = np.mean(flowVectorLength)
-                flowVectorLength_stdev = np.std(flowVectorLength)
+                flowVectorLength_std = np.std(flowVectorLength)
+                flowVectorLength_x_average = np.mean(flowVectorLength_x)
+                flowVectorLength_x_std = np.std(flowVectorLength_x)
+                flowVectorLength_y_average = np.mean(flowVectorLength_y)
+                flowVectorLength_y_std = np.std(flowVectorLength_y)
+
                 off = frame.copy()
-
-
                 mask = np.zeros_like(im1)
                 for y in range(0, opt_flow.shape[0] - 1, 1):
                     for x in range(0, opt_flow.shape[1] - 1, 1):
-                        if (flowVectorLength[y * (opt_flow.shape[1] - 1) + x] > (
-                                flowVectorLength_average + flowVectorLength_stdev)):
+                        if (flowVectorLength_x[y * (opt_flow.shape[1] - 1) + x] > (
+                                flowVectorLength_x_average + flowVectorLength_x_std)):
                             cv2.circle(mask, (x, y), 10, 255, -1)
                         elif (flowVectorLength[y * (opt_flow.shape[1] - 1) + x] < (
-                                flowVectorLength_average - flowVectorLength_stdev)):
+                                flowVectorLength_average - flowVectorLength_std)):
                             cv2.circle(mask, (x, y), 10, 255, -1)
 
                 # define dilate to fo fill in holes
