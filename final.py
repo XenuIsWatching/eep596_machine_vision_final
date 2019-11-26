@@ -197,7 +197,7 @@ while(cap.isOpened()):
         # calculate optical flow
         method = "optical"
         if method is "optical":
-            flowType = "DLK"
+            flowType = "LK"
             if flowType is "LK1":
                 vis = frame.copy()
                 if p0 is not None:
@@ -265,20 +265,17 @@ while(cap.isOpened()):
                 good_new = p1[st == 1]
                 good_old = p0[st == 1]
 
-                # Flow vector calculated by subtracting new pixels by old pixels
-                flow = p1 - p0
-
-                vis = draw_flow(frame, flow, 16)
-                cv2.imshow('Dense LK', vis)
-
+                vis = frame.copy()
                 flowVectorLength = []
-                for i, (new, old) in enumerate(zip(good_new, good_old)):
-                    a, b = new.ravel()
-                    c, d = old.ravel()
-                    flowVectorLength.append(math.sqrt((c-a)**2 + (d-b)**2))
-                    #mask = cv2.line(mask, (a, b), (c, d), color[i].tolist(), 2)
-                    frame = cv2.circle(frame, (a, b), 5, color[i].tolist(), -1)
-                    cv2.imshow("frame", frame)
+                for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
+                    if good:
+                        cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
+                    #flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
+                    vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
+                    cv2.imshow("vis", vis)
+
+                p0 = p1
+
             elif flowType is "DLK":
                 if first is True:
                     # Create empty matrices to fill later
