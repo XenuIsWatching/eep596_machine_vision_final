@@ -275,6 +275,14 @@ while(cap.isOpened()):
                     cv2.imshow("vis", vis)
 
                 p0 = p1
+                #if a point goes out of frame, remove it
+                i = 0
+                for (x0, y0) in p0[:, 0]:
+                    if x0 >= frame_width or x0 < 0 or y0 >= frame_height or y0 < 0:
+                        p0 = np.delete(p0, i, 0)
+                    else:
+                        i = i + 1
+
 
             elif flowType is "DLK":
                 if first is True:
