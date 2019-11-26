@@ -137,12 +137,12 @@ lk_params = dict( winSize  = (19, 19),
                   maxLevel = 4,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
-feature_params = dict( maxCorners = 1000,
+feature_params = dict( maxCorners = 100,
                        qualityLevel = 0.001,
-                       minDistance = 2,
-                       blockSize = 25 )
+                       minDistance = 5,
+                       blockSize = 19 )
 
-cap = cv2.VideoCapture('video/Study clip 027.mpg')
+cap = cv2.VideoCapture('video/Study clip 037.mpg')
 ret, frame = cap.read()
 frameCount = 0
 
@@ -267,12 +267,34 @@ while(cap.isOpened()):
 
                 vis = frame.copy()
                 flowVectorLength = []
+                flowVectorLength_x = []
+                flowVectorLength_y = []
                 for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
                     if good:
                         cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
-                    #flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
+                    flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
+                    flowVectorLength_x.append(x1 - x0)
+                    flowVectorLength_y.append(y1 - y0)
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
+
+                flowVectorLength_average = np.mean(flowVectorLength)
+                flowVectorLength_std = np.std(flowVectorLength)
+                flowVectorLength_x_average = np.mean(flowVectorLength_x)
+                flowVectorLength_x_std = np.std(flowVectorLength_x)
+                flowVectorLength_y_average = np.mean(flowVectorLength_y)
+                flowVectorLength_y_std = np.std(flowVectorLength_y)
+                mask = np.zeros_like(im1)
+                i = 0
+                for (x1, y1) in p1[:, 0]:
+                    #if (flowVectorLength[i] > (flowVectorLength_average + flowVectorLength_std*1.2)):
+                    if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std)):
+                        cv2.circle(mask, (x1, y1), 10, 255, -1)
+                    elif (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std)):
+                        cv2.circle(mask, (x1, y1), 10, 255, -1)
+                    i = i + 1
+                cv2.imshow("mask", mask)
+
 
                 p0 = p1
                 #if a point goes out of frame, remove it
