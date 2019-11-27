@@ -116,6 +116,14 @@ def warp_flow(img, flow):
     res = cv.remap(img, flow, None, cv.INTER_LINEAR)
     return res
 
+def calculate_region_of_interest(frame, tracking_points):
+    mask = np.zeros_like(frame)
+    mask[:] = 255
+    for(x, y) in tracking_points:
+        cv2.circle(mask, (x, y), 4, 0, -1)
+    cv2.imshow('point mask', mask)
+    return mask
+
 # Create some random colors
 color = np.random.randint(0,255,(100,3))
 
@@ -137,12 +145,12 @@ lk_params = dict( winSize  = (19, 19),
                   maxLevel = 4,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
-feature_params = dict( maxCorners = 150,
+feature_params = dict( maxCorners = 200,
                        qualityLevel = 0.001,
-                       minDistance = 3,
+                       minDistance = 4,
                        blockSize = 19 )
 
-cap = cv2.VideoCapture('video/Study clip 017.mpg')
+cap = cv2.VideoCapture('video/V3V200003_004.avi')
 ret, frame = cap.read()
 frameCount = 0
 
@@ -163,7 +171,7 @@ out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps,
 #        p0 = (y, x)
 
 while(cap.isOpened()):
-    frameSkipped = 4
+    frameSkipped = 1
     prev_frame = frame[:]
     ret, frame = cap.read()
     frameCount += frameSkipped+1
@@ -259,6 +267,12 @@ while(cap.isOpened()):
 
                 if first is True:
                     p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
+                else:
+                    mask = calculate_region_of_interest(im1, p2)
+                    cv2.imshow('point mask', mask)
+                    p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = 200 - len(p2), qualityLevel = 0.001, minDistance = 4, blockSize = 19 )
+                    p2 = p2.reshape(-1, 1, 2)
+                    p0 = np.concatenate((p0, p2), 0)
 
                 p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, p0, None, **lk_params)
                 # Select good points
@@ -276,7 +290,7 @@ while(cap.isOpened()):
                     flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
                     flowVectorLength_x.append(x1 - x0)
                     flowVectorLength_y.append(y1 - y0)
-                    flowAngle = math.atan((y1 - y0) / (x1 - x0))
+                    flowAngle.append(math.atan((y1 - y0) / (x1 - x0)))
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
 
@@ -304,10 +318,10 @@ while(cap.isOpened()):
 
                 if len(outliers) < len(inliers):
                     for (x1, y1) in outliers:
-                        cv2.circle(mask, (x1, y1), 10, 255, -1)
+                        cv2.circle(mask, (x1, y1), 11, 255, -1)
                 else:
                     for (x1, y1) in inliers:
-                        cv2.circle(mask, (x1, y1), 10, 255, -1)
+                        cv2.circle(mask, (x1, y1), 11, 255, -1)
 
                 cv2.imshow("mask", mask)
 
@@ -340,7 +354,7 @@ while(cap.isOpened()):
 
                 cv2.imshow("box", box)
 
-                p0 = p1
+                p2 = np.asarray(outliers)
                 #if a point goes out of frame or near edge, remove it
                 i = 0
                 for (x0, y0) in p0[:, 0]:
@@ -348,7 +362,14 @@ while(cap.isOpened()):
                         p0 = np.delete(p0, i, 0)
                     else:
                         i = i + 1
-
+                if False:
+                    p2 = cv2.goodFeaturesToTrack(im1, mask=None, **feature_params)
+                    #get new points
+                    #p2 = cv2.goodFeaturesToTrack(im1, mask=None, **feature_params)
+                    #check if point is already being tracked
+                    #p0 = np.concatenate((np.round(p0, 10), np.round(p2, 15)), 0)
+                    #p0 = [tuple(row) for row in p0]
+                    #p0 = np.asarray(p0)
 
             elif flowType is "DLK":
                 if first is True:
@@ -366,19 +387,36 @@ while(cap.isOpened()):
                     break
 
                 # Create the old matrix to feed to LK, instead of goodFeaturesToTrack
-                all_pixels = np.nonzero(im1)
-                all_pixels = tuple(zip(*all_pixels))
-                all_pixels = np.vstack(all_pixels).reshape(-1, 1, 2).astype("float32")
+                #all_pixels = np.where(im1 >= 0)
+                #all_pixels = tuple(zip(*all_pixels))
+                #all_pixels = np.vstack(all_pixels).reshape(-1, 1, 2).astype("float32")
+                all_pixels = []
+                for x in range(0, frame_width):
+                    for y in range(0, frame_height):
+                        all_pixels.append([[x, y]])
+
+                all_pixels = np.asarray(all_pixels).astype("float32")
 
                 # Calculate Optical Flow
                 p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, all_pixels, None, **lk_params)
-                all_pixels = all_pixels.reshape(frame_height, frame_width, 2)
-                p1 = p1.reshape(frame_height, frame_width, 2)
 
-                # Flow vector calculated by subtracting new pixels by old pixels
-                flow = p1 - all_pixels
-
-                vis = draw_flow(frame, flow, 16)
+                # Flow vector
+                vis = frame.copy()
+                flowVectorLength = []
+                flowVectorLength_x = []
+                flowVectorLength_y = []
+                flowAngle = []
+                i = 0
+                for (x0, y0), (x1, y1), good in zip(all_pixels[:, 0], p1[:, 0], st[:, 0]):
+                    if i % 30 is 0:
+                        if good:
+                            cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
+                        flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
+                        flowVectorLength_x.append(x1 - x0)
+                        flowVectorLength_y.append(y1 - y0)
+                        flowAngle.append(math.atan((y1 - y0) / (x1 - x0)))
+                        vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
+                    i = i + 1
                 cv2.imshow('Dense LK', vis)
 
             elif flowType is "OF":
@@ -388,11 +426,13 @@ while(cap.isOpened()):
                 flowVectorLength = []
                 flowVectorLength_x = []
                 flowVectorLength_y = []
+                flowAngle = []
                 for y in range(0, opt_flow.shape[0] - 1, 1):
                     for x in range(0, opt_flow.shape[1] - 1, 1):
                         flowVectorLength.append(math.sqrt(opt_flow[y, x, 0] ** 2 + opt_flow[y, x, 1] ** 2))
-                        flowVectorLength_x.append(x1 - x0)
-                        flowVectorLength_y.append(y1 - y0)
+                        flowVectorLength_x.append(opt_flow[y, x, 1])
+                        flowVectorLength_y.append(opt_flow[y, x, 0])
+                        flowAngle.append(math.atan(opt_flow[y, x, 1] / opt_flow[y, x, 0]))
 
                 flowVectorLength_average = np.mean(flowVectorLength)
                 flowVectorLength_std = np.std(flowVectorLength)
@@ -400,6 +440,7 @@ while(cap.isOpened()):
                 flowVectorLength_x_std = np.std(flowVectorLength_x)
                 flowVectorLength_y_average = np.mean(flowVectorLength_y)
                 flowVectorLength_y_std = np.std(flowVectorLength_y)
+                flowAngle_median = np.median(flowAngle)
 
                 off = frame.copy()
                 mask = np.zeros_like(im1)
