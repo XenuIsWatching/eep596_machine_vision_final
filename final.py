@@ -5,6 +5,21 @@ from scipy import signal
 import math
 from matplotlib import pyplot as plt
 
+cap = cv2.VideoCapture('video/V3V100003_004.avi')
+frameSkipped = 1
+filterType = "bilateral"
+method = "optical"
+flowType = "LK"
+contourAreaCutoff = 800
+lk_params = dict( winSize =(19, 19),
+                  maxLevel=4,
+                  criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+
+feature_params = dict( maxCorners=200,
+                       qualityLevel=0.001,
+                       minDistance=4,
+                       blockSize=19)
+
 def checkedTrace(img0, img1, p0, back_threshold = 1.0):
     p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
     p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
@@ -31,6 +46,37 @@ def optical_flow(I1g, I2g, window_size, tau=1e-2):
     # within window window_size * window_size
     for i in range(w, I1g.shape[0] - w):
         for j in range(w, I1g.shape[1] - w):
+            Ix = fx[i - w:i + w + 1, j - w:j + w + 1].flatten()
+            Iy = fy[i - w:i + w + 1, j - w:j + w + 1].flatten()
+            It = ft[i - w:i + w + 1, j - w:j + w + 1].flatten()
+
+            b = np.reshape(It, (It.shape[0], 1))  # get b here
+            A = np.vstack((Ix, Iy)).T  # get A here
+
+            if np.min(abs(np.linalg.eigvals(np.matmul(A.T, A)))) >= tau:
+                nu = np.matmul(np.linalg.pinv(A), b)  # get velocity here
+                u[i, j] = nu[0]
+                v[i, j] = nu[1]
+    return (u, v)
+
+def optical_flow_sparse(I1g, I2g, window_size, p0, tau=1e-2):
+    kernel_x = np.array([[-1., 1.], [-1., 1.]])
+    kernel_y = np.array([[-1., -1.], [1., 1.]])
+    kernel_t = np.array([[1., 1.], [1., 1.]])  # *.25
+    w = window_size // 2  # window_size is odd, all the pixels with offset in between [-w, w] are inside the window
+    I1g = I1g / 255.  # normalize pixels
+    I2g = I2g / 255.  # normalize pixels
+    # Implement Lucas Kanade
+    # for each point, calculate I_x, I_y, I_t
+    mode = 'same'
+    fx = signal.convolve2d(I1g, kernel_x, boundary='symm', mode=mode)
+    fy = signal.convolve2d(I1g, kernel_y, boundary='symm', mode=mode)
+    ft = signal.convolve2d(I2g, kernel_t, boundary='symm', mode=mode) + signal.convolve2d(I1g, -kernel_t,
+                                                                                          boundary='symm', mode=mode)
+    u = []
+    v = []
+    # within window window_size * window_size
+    for (i, j) in p0[:, 0]:
             Ix = fx[i - w:i + w + 1, j - w:j + w + 1].flatten()
             Iy = fy[i - w:i + w + 1, j - w:j + w + 1].flatten()
             It = ft[i - w:i + w + 1, j - w:j + w + 1].flatten()
@@ -141,16 +187,6 @@ if stitched is True:
 else:
     stitchedFirst = False
 
-lk_params = dict( winSize  = (19, 19),
-                  maxLevel = 4,
-                  criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
-
-feature_params = dict( maxCorners = 200,
-                       qualityLevel = 0.001,
-                       minDistance = 4,
-                       blockSize = 19 )
-
-cap = cv2.VideoCapture('video/V3V200003_004.avi')
 ret, frame = cap.read()
 frameCount = 0
 
@@ -171,7 +207,6 @@ out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps,
 #        p0 = (y, x)
 
 while(cap.isOpened()):
-    frameSkipped = 1
     prev_frame = frame[:]
     ret, frame = cap.read()
     frameCount += frameSkipped+1
@@ -197,72 +232,93 @@ while(cap.isOpened()):
         #im1 = cv2.normalize(im1, 0, 255, cv2.NORM_MINMAX)
         #im2 = cv2.normalize(im2, 0, 255, cv2.NORM_MINMAX)
 
-        filterType = "bilateral"
         if filterType is "bilateral":
             im1 = cv2.bilateralFilter(im1, 5, 20, 20)
             im2 = cv2.bilateralFilter(im2, 5, 20, 20)
 
         # calculate optical flow
-        method = "optical"
         if method is "optical":
-            flowType = "LK"
             if flowType is "LK1":
+
+                #if first is True:
+                p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
+
+                window_size = 5
+                I1g = im1.copy()
+                I2g = im2.copy()
+                tau = 1e-2
+
+                kernel_x = np.array([[-1., 1.], [-1., 1.]])
+                kernel_y = np.array([[-1., -1.], [1., 1.]])
+                kernel_t = np.array([[1., 1.], [1., 1.]])  # *.25
+                w = window_size // 2  # window_size is odd, all the pixels with offset in between [-w, w] are inside the window
+                I1g = I1g / 255.  # normalize pixels
+                I2g = I2g / 255.  # normalize pixels
+                # Implement Lucas Kanade
+                # for each point, calculate I_x, I_y, I_t
+                mode = 'same'
+                fx = signal.convolve2d(I1g, kernel_x, boundary='symm', mode=mode)
+                fy = signal.convolve2d(I1g, kernel_y, boundary='symm', mode=mode)
+                ft = signal.convolve2d(I2g, kernel_t, boundary='symm', mode=mode) + signal.convolve2d(I1g, -kernel_t,
+                                                                                                      boundary='symm',
+                                                                                                      mode=mode)
+                u = []
+                v = []
+                # within window window_size * window_size
+                for (i, j) in p0[:, 0]:
+                    i = int(i)
+                    j = int(j)
+                    Ix = fx[i - w:i + w + 1, j - w:j + w + 1].flatten()
+                    Iy = fy[i - w:i + w + 1, j - w:j + w + 1].flatten()
+                    It = ft[i - w:i + w + 1, j - w:j + w + 1].flatten()
+
+                    b = np.reshape(It, (It.shape[0], 1))  # get b here
+                    A = np.vstack((Ix, Iy)).T  # get A here
+
+                    if np.min(abs(np.linalg.eigvals(np.matmul(A.T, A)))) >= tau:
+                        nu = np.matmul(np.linalg.pinv(A), b)  # get velocity here
+                        u.append(nu[0])
+                        v.append(nu[1])
+                    else:
+                        u.append(0)
+                        v.append(0)
+
+                # Select good points
                 vis = frame.copy()
-                if p0 is not None:
-                    p2, trace_status = checkedTrace(im2, im1, p1)
+                i = 0
+                p2 = np.zeros_like(p0)
+                for (x0, y0) in p0[:, 0]:
+                    pt = np.array([y0, x0])
+                    uv = np.array([u[i], v[i]]) * 4
+                    uv = np.reshape(uv, 2)
+                    pt2 = ((pt + uv)).astype(np.int)
+                    pt = np.flip(pt)
+                    pt2 = np.flip(pt2)
+                    p2[i] = pt2
+                    vis = cv2.arrowedLine(vis, tuple(pt), tuple(pt2), red, 1)
+                    i = i + 1
 
-                    p1 = p2[trace_status].copy()
-                    p0 = p0[trace_status].copy()
+
+                cv2.imshow("vis", vis)
+
+                p0 = p2
+            elif flowType is "DLK1":
 
 
-                    if len(p0) < 4:
-                        p0 = None
-                        continue
-                    H, status = cv2.findHomography(p0, p1, (0, cv2.RANSAC)[True], 10.0)
-                    h, w = frame.shape[:2]
-                    overlay = cv2.warpPerspective(prev_frame, H, (w, h))
-                    vis = cv2.addWeighted(vis, 0.5, overlay, 0.5, 0.0)
+                u, v = optical_flow(im1, im2, 15)
+                # Select good points
+                vis = frame.copy()
+                for x in range (0, frame_width, 10):
+                    for y in range(0, frame_height, 10):
+                        pt = np.array([y, x])
+                        uv = np.array([u[y, x], v[y, x]]) * 4
+                        pt2 = ((pt + uv)).astype(np.int)
+                        pt = np.flip(pt)
+                        pt2 = np.flip(pt2)
+                        vis = cv2.arrowedLine(vis, tuple(pt), tuple(pt2), red, 1)
 
-                    flowVectorLength = []
-                    for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], status[:, 0]):
-                        if good:
-                            cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
-                        flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
-                        vis = cv2.circle(vis, (x1, y1), 5, (red, green)[good], -1)
-                    #draw_str(vis, (20, 20), 'track count: %d' % len(self.p1))
-                    #if .use_ransac:
-                        #draw_str(vis, (20, 40), 'RANSAC')
+                cv2.imshow("vis", vis)
 
-                    #flowVectorLength = []
-                    #for i, (p1, p0) in enumerate(zip(p1, p0)):
-                        #a, b = p0[i].ravel()
-                        #c, d = p1[i].ravel()
-                        #flowVectorLength.append(math.sqrt((c-a)**2 + (d-b)**2))
-
-                    flowVectorLength_average = np.mean(flowVectorLength)
-                    flowVectorLength_stdev = np.std(flowVectorLength)
-                    off = frame.copy()
-
-                    i = 0
-                    for (x1, y1), good in zip(p1[:, 0], status[:, 0]):
-                        if (flowVectorLength[i] > (flowVectorLength_average + flowVectorLength_stdev*0.8)):
-                            cv2.circle(off, (x1, y1), 3, (0, 255, 0), -1)
-                        elif (flowVectorLength[i] < (flowVectorLength_average - flowVectorLength_stdev*0.8)):
-                            cv2.circle(off, (x1, y1), 3, (0, 255, 0), -1)
-                        i = i + 1
-                    cv2.imshow("off", off)
-
-                    p0 = cv2.goodFeaturesToTrack(im1, **feature_params)
-                    p1 = p0
-                else:
-                    p0 = cv2.goodFeaturesToTrack(im1, **feature_params)
-                    p1 = p0
-                    if p0 is not None:
-                        for x, y in p0[:, 0]:
-                            cv2.circle(vis, (x, y), 10, green, -1)
-                        #draw_str(vis, (20, 20), 'feature count: %d' % len(p))
-
-                cv2.imshow('lk_homography', vis)
             elif flowType is "LK":
 
                 if first is True:
@@ -318,19 +374,16 @@ while(cap.isOpened()):
 
                 if len(outliers) < len(inliers):
                     for (x1, y1) in outliers:
-                        cv2.circle(mask, (x1, y1), 11, 255, -1)
+                        cv2.circle(mask, (x1, y1), 13, 255, -1)
                 else:
                     for (x1, y1) in inliers:
-                        cv2.circle(mask, (x1, y1), 11, 255, -1)
+                        cv2.circle(mask, (x1, y1), 13, 255, -1)
 
                 cv2.imshow("mask", mask)
 
                 kernel = np.ones((11, 11), np.uint8)
                 erosion = cv2.erode(mask, kernel, iterations=1)
                 cv2.imshow("erosion", erosion)
-
-                gradient = cv2.morphologyEx(erosion, cv2.MORPH_GRADIENT, kernel)
-                cv2.imshow("gradient", gradient)
 
                 # define dilate to fo fill in holes
                 dilate = cv2.dilate(mask, kernel, iterations=1)
@@ -344,7 +397,7 @@ while(cap.isOpened()):
                 box = frame.copy()
                 for c in cnts:
                     # if the contour is too small, ignore it
-                    if cv2.contourArea(c) < 500:
+                    if cv2.contourArea(c) < contourAreaCutoff:
                         continue
 
                     # compute the bounding box for the contour, draw it on the frame,
@@ -441,17 +494,18 @@ while(cap.isOpened()):
                 flowVectorLength_y_average = np.mean(flowVectorLength_y)
                 flowVectorLength_y_std = np.std(flowVectorLength_y)
                 flowAngle_median = np.median(flowAngle)
+                fig, axs = plt.subplots(2, 2, figsize=(5, 5))
 
                 off = frame.copy()
                 mask = np.zeros_like(im1)
+                i = 0
                 for y in range(0, opt_flow.shape[0] - 1, 1):
                     for x in range(0, opt_flow.shape[1] - 1, 1):
-                        if (flowVectorLength_x[y * (opt_flow.shape[1] - 1) + x] > (
-                                flowVectorLength_x_average + flowVectorLength_x_std)):
+                        if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std)):
                             cv2.circle(mask, (x, y), 10, 255, -1)
-                        elif (flowVectorLength[y * (opt_flow.shape[1] - 1) + x] < (
-                                flowVectorLength_average - flowVectorLength_std)):
+                        elif (flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std)):
                             cv2.circle(mask, (x, y), 10, 255, -1)
+                        i = i + 1
 
                 # define dilate to fo fill in holes
                 mask = cv2.dilate(mask, None, iterations=2)
