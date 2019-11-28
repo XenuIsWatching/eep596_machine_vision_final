@@ -95,51 +95,56 @@ class CNN(nn.Module):
         x = self.fc1(x)
         return x
 
-m = CNN() #init a brand-new untrained cnn
-#pred = m(x) #prediction
-#print(pred.shape) #vector will be encoded to 16*5
-#print(pred)
+if os.path.isfile("model.pt") is False:
+    m = CNN() #init a brand-new untrained cnn
+    #pred = m(x) #prediction
+    #print(pred.shape) #vector will be encoded to 16*5
+    #print(pred)
 
-#now it's time for training
-criterion = nn.CrossEntropyLoss()
-num_epoches = 50
+    #now it's time for training
+    criterion = nn.CrossEntropyLoss()
+    num_epoches = 50
 
-#our training loop
-for epoch_id in range(num_epoches):
-    optimizer = optim.SGD(m.parameters(), lr=0.01 * 0.95 ** epoch_id)
-    for x, y in tqdm.tqdm(loader):
+    #our training loop
+    for epoch_id in range(num_epoches):
+        optimizer = optim.SGD(m.parameters(), lr=0.01 * 0.95 ** epoch_id)
+        for x, y in tqdm.tqdm(loader):
+            optimizer.zero_grad() # clear (reset) the gradient for the optimizer
+            pred = m(x)
+            loss = criterion(pred, y)
+            loss.backward() # calculating the gradient
+            optimizer.step() # backpropagation: optimize the model
+
+    #after training, test phase test the result include accuracy
+    # Setup the dataset
+    TESTDIR = os.getcwd()+'/data/test_img'
+    test_ds = torchvision.datasets.ImageFolder(root = TESTDIR,
+                                         transform=trans_)
+
+    # Setup the dataloader
+    testloader = torch.utils.data.DataLoader(test_ds,
+                                         batch_size=16,
+                                         shuffle=True)
+
+    all_gt = []
+    all_pred = []
+
+    for x, y in tqdm.tqdm(testloader):
         optimizer.zero_grad() # clear (reset) the gradient for the optimizer
-        pred = m(x)
-        loss = criterion(pred, y)
-        loss.backward() # calculating the gradient
-        optimizer.step() # backpropagation: optimize the model
+        all_gt += list(y.numpy().reshape(-1))
+        pred = torch.argmax(m(x), dim=1)
+        all_pred += list(pred.numpy().reshape(-1))
 
-#after training, test phase test the result include accuracy
-# Setup the dataset
-TESTDIR = os.getcwd()+'/data/test_img'
-test_ds = torchvision.datasets.ImageFolder(root = TESTDIR,
-                                     transform=trans_)
+    print(all_gt)
+    print(all_pred)
+    acc = np.sum(np.array(all_gt) == np.array(all_pred)) / len(all_gt)
+    print("Accuracy is:", acc)
 
-# Setup the dataloader
-testloader = torch.utils.data.DataLoader(test_ds, 
-                                     batch_size=16, 
-                                     shuffle=True)
+    torch.save(m, "model.pt")
+else:
+    m = CNN()
+    m = torch.load("model.pt")
 
-all_gt = []
-all_pred = []
-
-for x, y in tqdm.tqdm(testloader):
-    optimizer.zero_grad() # clear (reset) the gradient for the optimizer
-    all_gt += list(y.numpy().reshape(-1))
-    pred = torch.argmax(m(x), dim=1)
-    all_pred += list(pred.numpy().reshape(-1))
-
-print(all_gt)
-print(all_pred)
-acc = np.sum(np.array(all_gt) == np.array(all_pred)) / len(all_gt)
-print("Accuracy is:", acc)
-
-RAND_TESTDIR = os.getcwd()+'/data/test_random'
 def image_loader(loader, image_name):
     image = pil.Image.open(image_name)
     image = loader(image).float()
@@ -151,8 +156,5 @@ def objTypeByPath(img_dir):
     idx = np.argmax(m(image_loader(trans_, img_dir)).detach().numpy())
     return CATAGORIES[idx]
 
-path1 = RAND_TESTDIR + '/random_test1.jpg'
-path2 = RAND_TESTDIR + '/random_test2.jpg'
-
-print(objTypeByPath(path1))
-print(objTypeByPath(path2))
+print(objTypeByPath("data/extracted_images/object_1_50.jpg"))
+print(objTypeByPath("data/extracted_images/object_1_931.jpg"))

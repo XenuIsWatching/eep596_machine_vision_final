@@ -4,10 +4,90 @@ import imutils
 from scipy import signal
 import math
 from matplotlib import pyplot as plt
+import py
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision
+import matplotlib.pyplot as plt
+import numpy as np
+import pdb
+import tqdm
+import torch.optim as optim
+import os
+import PIL as pil
+import warnings
 from scipy.spatial import distance as dist
 from collections import OrderedDict
 
 uid = 0
+
+# the cnn class which inherit from torch.nn.Module class
+layer = 2
+
+#init data loader
+DATADIR = os.getcwd()+'/data/train_img'
+BATCH_SIZE = 16
+IMG_SIZE = 100
+CENTER_SIZE = IMG_SIZE+IMG_SIZE*0.2#20
+CATEGORY_SIZE = 2 #how many folders/categories we have in data folder, for now only car, plane, and person
+
+CATAGORIES = ["car","person","plane"]
+
+# transform to do random affine and cast image to PyTorch tensor
+trans_ = torchvision.transforms.Compose(
+    [
+     # torchvision.transforms.RandomAffine(10),
+     torchvision.transforms.Resize((IMG_SIZE)),
+     torchvision.transforms.CenterCrop(CENTER_SIZE),
+     torchvision.transforms.ToTensor()] #transform from height*width*channel to ch*h*w in order to fit tourch tensor format
+)
+
+
+class CNN(nn.Module):
+    cur_kernel_size = 3
+    pool_kernel_val = 2
+    cur_img_dim = CENTER_SIZE
+
+    def __init__(self):  # constructor
+        super(CNN, self).__init__()
+
+        self.l1 = nn.Conv2d(kernel_size=3, in_channels=3, out_channels=16)  # 1st convolve layer
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)  # down sampling layer
+        self.l2 = nn.Conv2d(kernel_size=3, in_channels=16, out_channels=32)  # 2nd convolve layer
+
+        # calculate the final dimention (h*w*d) after 2 layers of convolution and downsampling
+        global cur_img_dim
+        global cur_kernel_size
+        global pool_kernel_val
+        cur_img_dim = CENTER_SIZE
+        cur_kernel_size = 3
+        pool_kernel_val = 2
+        img_trim = ((cur_kernel_size - 1) / 2) * 2  # here assume kernel size is always odd
+        for i in range(layer):
+            cur_img_dim -= img_trim
+            cur_img_dim = cur_img_dim / pool_kernel_val
+        cur_img_dim = int(cur_img_dim)
+
+        # FC layer (fully-connected or linear layer)
+        self.fc1 = nn.Linear(int(32 * cur_img_dim * cur_img_dim), CATEGORY_SIZE)  # 32 * 28 * 28 for 2 layers
+
+    def forward(self, x):
+        # define the data flow through the deep learning layers
+        # (1st conv->pool layer)
+        x = self.pool(F.relu(self.l1(x)))
+        # (2nd conv->pool layer)
+        x = self.pool(F.relu(self.l2(x)))
+        # flatten layer, set -1 coz last batch might not be full
+        input_size = 32 * cur_img_dim * cur_img_dim
+        x = x.reshape(-1, input_size)  # [16 x 1152]
+        # FC layer
+        x = self.fc1(x)
+        return x
+
+
+m = CNN()
+m = torch.load("model.pt")
 
 cap = cv2.VideoCapture('video/V3V100003_004.avi')
 frameSkipped = 1
@@ -24,6 +104,16 @@ feature_params = dict( maxCorners=200,
                        minDistance=4,
                        blockSize=19)
 
+def image_loader(loader, image_name):
+    image = pil.Image.open(image_name)
+    image = loader(image).float()
+    image = torch.tensor(image, requires_grad=True)
+    image = image.unsqueeze(0)
+    return image
+
+def objTypeByPath(img_dir):
+    idx = np.argmax(m(image_loader(trans_, img_dir)).detach().numpy())
+    return CATAGORIES[idx]
 
 def checkedTrace(img0, img1, p0, back_threshold = 1.0):
     p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
@@ -442,6 +532,8 @@ while(cap.isOpened()):
                     cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
                     cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w])
                     cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w])
+                    objClass = objTypeByPath("images/object_" + str(i) + "_" + str(uid) + ".jpg")
+                    cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA)
                     i=i+1
                     uid=uid+1
 
