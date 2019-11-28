@@ -4,6 +4,9 @@ import imutils
 from scipy import signal
 import math
 from matplotlib import pyplot as plt
+from scipy.spatial import distance as dist
+from collections import OrderedDict
+
 
 cap = cv2.VideoCapture('video/V3V100003_004.avi')
 frameSkipped = 1
@@ -19,6 +22,7 @@ feature_params = dict( maxCorners=200,
                        qualityLevel=0.001,
                        minDistance=4,
                        blockSize=19)
+
 
 def checkedTrace(img0, img1, p0, back_threshold = 1.0):
     p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
@@ -346,18 +350,48 @@ while(cap.isOpened()):
                     flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
                     flowVectorLength_x.append(x1 - x0)
                     flowVectorLength_y.append(y1 - y0)
-                    flowAngle.append(math.atan((y1 - y0) / (x1 - x0)))
+                    flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0))))
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
 
                 flowVectorLength_average = np.mean(flowVectorLength)
+                flowVectorLength_median = np.median(flowVectorLength)
                 flowVectorLength_std = np.std(flowVectorLength)
                 flowVectorLength_x_average = np.mean(flowVectorLength_x)
+                flowVectorLength_x_median = np.median(flowVectorLength_x)
                 flowVectorLength_x_std = np.std(flowVectorLength_x)
                 flowVectorLength_y_average = np.mean(flowVectorLength_y)
+                flowVectorLength_y_median = np.median(flowVectorLength_y)
                 flowVectorLength_y_std = np.std(flowVectorLength_y)
+                flowAngle_median = np.median(flowAngle)
+                h = cv2.findHomography(good_old, good_new)
+                flowVectorLength_compestated = []
+                for i in range(0, len(flowAngle), 1):
+                    flowVectorLength_compestated.append(flowVectorLength[i] * math.cos(flowAngle_median - flowAngle[i]))
+
+                if False:
+                    Z = np.vstack((flowVectorLength, flowAngle)).T
+                    Z = np.float32(Z)
+                    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.01)
+                    ret, label, center = cv2.kmeans(Z, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+                    A = Z[label.ravel() == 0]
+                    B = Z[label.ravel() == 1]
+                    plt.clf()
+                    plt.scatter(A[:, 0], A[:, 1])
+                    plt.scatter(B[:, 0], B[:, 1], c='r')
+                    plt.scatter(center[:, 0], center[:, 1], s=80, c='y', marker='s')
+                    plt.axis([0,30,-180,180])
+                    plt.xlabel('Distance'), plt.ylabel('Angle')
+                    plt.show()
+
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111, polar=True)
+                    c = ax.scatter(B[:, 1], B[:, 0], c='r')
+                    c = ax.scatter(A[:, 1], A[:, 0])
+
                 mask = np.zeros_like(im1)
                 i = 0
+
 
                 outliers = []
                 inliers = []
@@ -395,6 +429,7 @@ while(cap.isOpened()):
 
                 # loop over the contours
                 box = frame.copy()
+                i=1
                 for c in cnts:
                     # if the contour is too small, ignore it
                     if cv2.contourArea(c) < contourAreaCutoff:
@@ -404,6 +439,9 @@ while(cap.isOpened()):
                     # and update the text
                     (x, y, w, h) = cv2.boundingRect(c)
                     cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
+                    cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w])
+                    cv2.imwrite(("object_" + str(i) + ".jpg"), frame[y:y+h, x:x+w])
+                    i=i+1
 
                 cv2.imshow("box", box)
 
