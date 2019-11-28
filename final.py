@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 from scipy.spatial import distance as dist
 from collections import OrderedDict
 
+uid = 0
 
 cap = cv2.VideoCapture('video/V3V100003_004.avi')
 frameSkipped = 1
@@ -440,8 +441,9 @@ while(cap.isOpened()):
                     (x, y, w, h) = cv2.boundingRect(c)
                     cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
                     cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w])
-                    cv2.imwrite(("object_" + str(i) + ".jpg"), frame[y:y+h, x:x+w])
+                    cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w])
                     i=i+1
+                    uid=uid+1
 
                 cv2.imshow("box", box)
 
