@@ -19,6 +19,7 @@ import PIL as pil
 import warnings
 from scipy.spatial import distance as dist
 from collections import OrderedDict
+from scipy.spatial import cKDTree
 
 uid = 0
 
@@ -90,7 +91,7 @@ class CNN(nn.Module):
 m = CNN()
 m = torch.load("model.pt")
 
-cap = cv2.VideoCapture('data/sample_video/V3V100003_004.avi')
+cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_017.avi')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
@@ -258,11 +259,11 @@ def warp_flow(img, flow):
     res = cv.remap(img, flow, None, cv.INTER_LINEAR)
     return res
 
-def calculate_region_of_interest(frame, tracking_points):
+def calculate_region_of_interest(frame, tracking_points, range):
     mask = np.zeros_like(frame)
     mask[:] = 255
     for(x, y) in tracking_points:
-        cv2.circle(mask, (x, y), 4, 0, -1)
+        cv2.circle(mask, (x, y), range, 0, -1)
     cv2.imshow('point mask', mask)
     return mask
 
@@ -296,7 +297,8 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
 # Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
-out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
+points_video = cv2.VideoWriter('points.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
+box_video = cv2.VideoWriter('box.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
 
 #for y in range(0, frame_height - 1, 1):
 #    for x in range(0, frame_width - 1, 1):
@@ -305,8 +307,8 @@ out = cv2.VideoWriter('outpy.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps,
 while(cap.isOpened()):
     prev_frame = frame[:]
     ret, frame = cap.read()
-    frameCount += frameSkipped+1
-    cap.set(1, frameCount)
+    #frameCount += frameSkipped+1
+    #cap.set(1, frameCount)
     if ret:
         im1 = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -419,14 +421,36 @@ while(cap.isOpened()):
 
                 if first is True:
                     p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
-                else:
-                    mask = calculate_region_of_interest(im1, p2)
+                    movement_weight = np.zeros_like(im1)
+                elif len(p2) < 250:
+                    mask = calculate_region_of_interest(im1, p2, 6)
                     cv2.imshow('point mask', mask)
-                    p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = 200 - len(p2), qualityLevel = 0.001, minDistance = 4, blockSize = 19 )
+                    p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = 250 - len(p2), qualityLevel = 0.001, minDistance = 6, blockSize = 19 )
                     p2 = p2.reshape(-1, 1, 2)
                     p0 = np.concatenate((p0, p2), 0)
+                else:
+                    p0 = p2.reshape(-1, 1, 2)
 
                 p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, p0, None, **lk_params)
+
+                #if a point goes out of frame or near edge, remove it
+                i = 0
+                for (x0, y0) in p0[:, 0]:
+                    if x0 >= frame_width*0.97 or x0 < frame_width*0.03 or y0 >= frame_height*0.97 or y0 < frame_height*0.03:
+                        p0 = np.delete(p0, i, 0)
+                        p1 = np.delete(p1, i, 0)
+                        st = np.delete(st, i, 0)
+                        err = np.delete(err, i, 0)
+                    else:
+                        i = i + 1
+                tree = cKDTree(p1.reshape(-1,2))
+                rows_delete = tree.query_pairs(r=6)
+                for p in rows_delete:
+                    p0 = np.delete(p0, p, 0)
+                    p1 = np.delete(p1, p, 0)
+                    st = np.delete(st, p, 0)
+                    err = np.delete(err, p, 0)
+
                 # Select good points
                 good_new = p1[st == 1]
                 good_old = p0[st == 1]
@@ -445,6 +469,8 @@ while(cap.isOpened()):
                     flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0))))
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
+
+                points_video.write(vis)
 
                 flowVectorLength_average = np.mean(flowVectorLength)
                 flowVectorLength_median = np.median(flowVectorLength)
@@ -484,17 +510,21 @@ while(cap.isOpened()):
                 mask = np.zeros_like(im1)
                 i = 0
 
-
                 outliers = []
                 inliers = []
                 std_tolerance = 1.0
-                for (x1, y1) in p1[:, 0]:
-                    #if (flowVectorLength[i] > (flowVectorLength_average + flowVectorLength_std*1.2)):
+                for (x0, y0), (x1, y1) in zip(p0[:, 0], p1[:, 0]):
+                    #if x1 != x0 and y1 != y0:
+                        #movement_weight[x1, y1] = movement_weight[x0, y0]
+                        #movement_weight[x0, y0] = 0
                     if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)):
+                        #movement_weight[x1, y1] = movement_weight[x1, y1] + 1
                         outliers.append([x1, y1])
                     elif (flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance)):
+                        #ovement_weight[x1, y1] = movement_weight[x1, y1] + 1
                         outliers.append([x1, y1])
                     else:
+                        #ovement_weight[x1, y1] = movement_weight[x1, y1] - 1
                         inliers.append([x1, y1])
                     i = i + 1
 
@@ -539,15 +569,9 @@ while(cap.isOpened()):
                     uid=uid+1
 
                 cv2.imshow("box", box)
+                box_video.write(box)
 
-                p2 = np.asarray(outliers)
-                #if a point goes out of frame or near edge, remove it
-                i = 0
-                for (x0, y0) in p0[:, 0]:
-                    if x0 >= frame_width*0.97 or x0 < frame_width*0.03 or y0 >= frame_height*0.97 or y0 < frame_height*0.03:
-                        p0 = np.delete(p0, i, 0)
-                    else:
-                        i = i + 1
+
                 if False:
                     p2 = cv2.goodFeaturesToTrack(im1, mask=None, **feature_params)
                     #get new points
@@ -556,6 +580,8 @@ while(cap.isOpened()):
                     #p0 = np.concatenate((np.round(p0, 10), np.round(p2, 15)), 0)
                     #p0 = [tuple(row) for row in p0]
                     #p0 = np.asarray(p0)
+
+                p2 = np.concatenate((np.asarray(outliers), np.asarray(inliers)))
 
             elif flowType is "DLK":
                 if first is True:
