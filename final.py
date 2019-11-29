@@ -89,7 +89,7 @@ class CNN(nn.Module):
 m = CNN()
 m = torch.load("model.pt")
 
-cap = cv2.VideoCapture('video/V3V100003_004.avi')
+cap = cv2.VideoCapture('data/sample_video/V3V100003_004.avi')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
