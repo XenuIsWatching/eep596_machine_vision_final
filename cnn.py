@@ -17,9 +17,9 @@ DATADIR = os.getcwd()+'/data/train_img'
 BATCH_SIZE = 16
 IMG_SIZE = 100
 CENTER_SIZE = IMG_SIZE+IMG_SIZE*0.2#20
-CATEGORY_SIZE = 2 #how many folders/categories we have in data folder, for now only car, plane, and person
+CATEGORY_SIZE = 4 #how many folders/categories we have in data folder, for now only car, plane, and person
 
-CATAGORIES = ["car","person","plane"]
+CATAGORIES = ["car","motorbike","person","plane"]
 
 # transform to do random affine and cast image to PyTorch tensor
 trans_ = torchvision.transforms.Compose(
@@ -156,5 +156,9 @@ def objTypeByPath(img_dir):
     idx = np.argmax(m(image_loader(trans_, img_dir)).detach().numpy())
     return CATAGORIES[idx]
 
-print(objTypeByPath("data/extracted_images/object_1_50.jpg"))
-print(objTypeByPath("data/extracted_images/object_1_931.jpg"))
+#print(objTypeByPath("data/extracted_images/object_1_50.jpg"))
+#print(objTypeByPath("data/extracted_images/object_1_931.jpg"))
+print(objTypeByPath("data/test_random/random_test1.jpg"))
+print(objTypeByPath("data/test_random/random_test2.jpg"))
+print(objTypeByPath("data/test_random/random_test3.jpg"))
+print(objTypeByPath("data/test_random/random_test4.jpg"))

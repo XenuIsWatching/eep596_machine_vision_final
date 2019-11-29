@@ -32,7 +32,8 @@ IMG_SIZE = 100
 CENTER_SIZE = IMG_SIZE+IMG_SIZE*0.2#20
 CATEGORY_SIZE = 2 #how many folders/categories we have in data folder, for now only car, plane, and person
 
-CATAGORIES = ["car","person","plane"]
+#CATAGORIES = ["car","person","plane"]
+CATAGORIES = ["car","motorbike","person","plane"]
 
 # transform to do random affine and cast image to PyTorch tensor
 trans_ = torchvision.transforms.Compose(
