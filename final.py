@@ -395,6 +395,29 @@ while(cap.isOpened()):
                 good_new = p1[st == 1]
                 good_old = p0[st == 1]
 
+                # remove the rotation from the camera moving in x, y, z coordinates
+                #uvs = np.vstack((flowVectorLength_x, flowVectorLength_y)).T
+                #z = np.ones_like(flowVectorLength_x)
+                #uvzs = np.vstack((flowVectorLength_x, flowVectorLength_y, z)).T
+                h, mask = cv2.findHomography(good_old, good_new, cv2.RANSAC, 5.0)
+                #for vec in uvzs:
+                #    vec = vec.T
+                o = np.ones(p1.shape[0])
+                o = o.reshape(-1,1)
+                p1z = np.dstack((p1, o))
+                pT = p1
+                i = 0
+                test = p1[2,:,:]
+                for m in p1z:
+                    v = np.matmul(h, m.T)
+                    v = v.T
+                    v = np.delete(v, 2, 1) # remove z axis
+                    v = v.reshape((1,1,2))
+                    pT[i,:,:] = v
+                    i = i + 1
+
+                #p1 = pT
+
                 vis = frame.copy()
                 flowVectorLength = []
                 flowVectorLength_x = []
@@ -410,6 +433,9 @@ while(cap.isOpened()):
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
 
+
+
+
                 points_video.write(vis)
 
                 # calculate the mean, std, and median of the x, y vectors
@@ -423,7 +449,6 @@ while(cap.isOpened()):
                 flowVectorLength_y_median = np.median(flowVectorLength_y)
                 flowVectorLength_y_std = np.std(flowVectorLength_y)
                 flowAngle_median = np.median(flowAngle)
-                h, mask = cv2.findHomography(p0, p1, cv2.RANSAC, 5.0)
                 flowVectorLength_compestated = []
                 for i in range(0, len(flowAngle), 1):
                     flowVectorLength_compestated.append(flowVectorLength[i] * math.cos(flowAngle_median - flowAngle[i]))
