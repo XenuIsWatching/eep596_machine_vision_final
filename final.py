@@ -444,7 +444,7 @@ while(cap.isOpened()):
                     else:
                         i = i + 1
                 tree = cKDTree(p1.reshape(-1,2))
-                rows_delete = tree.query_pairs(r=6)
+                rows_delete = tree.query_pairs(r=5)
                 for p in rows_delete:
                     p0 = np.delete(p0, p, 0)
                     p1 = np.delete(p1, p, 0)
@@ -482,7 +482,7 @@ while(cap.isOpened()):
                 flowVectorLength_y_median = np.median(flowVectorLength_y)
                 flowVectorLength_y_std = np.std(flowVectorLength_y)
                 flowAngle_median = np.median(flowAngle)
-                h = cv2.findHomography(good_old, good_new)
+                h, mask = cv2.findHomography(p0, p1, cv2.RANSAC, 5.0)
                 flowVectorLength_compestated = []
                 for i in range(0, len(flowAngle), 1):
                     flowVectorLength_compestated.append(flowVectorLength[i] * math.cos(flowAngle_median - flowAngle[i]))
@@ -517,10 +517,8 @@ while(cap.isOpened()):
                     #if x1 != x0 and y1 != y0:
                         #movement_weight[x1, y1] = movement_weight[x0, y0]
                         #movement_weight[x0, y0] = 0
-                    if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)):
-                        #movement_weight[x1, y1] = movement_weight[x1, y1] + 1
-                        outliers.append([x1, y1])
-                    elif (flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance)):
+                    if (flowVectorLength_x[i] > (flowVectorLength_x_median + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_median - flowVectorLength_x_std*std_tolerance)) \
+                        and ((flowVectorLength_y[i] > (flowVectorLength_y_median + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_median - flowVectorLength_y_std*std_tolerance))):
                         #ovement_weight[x1, y1] = movement_weight[x1, y1] + 1
                         outliers.append([x1, y1])
                     else:
