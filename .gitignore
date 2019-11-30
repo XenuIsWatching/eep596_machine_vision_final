@@ -219,3 +219,4 @@ data/devkit/README.txt
 Icon?
 
 # End of https://www.gitignore.io/api/python,pycharm
+.idea/

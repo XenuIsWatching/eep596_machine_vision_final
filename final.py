@@ -336,73 +336,7 @@ while(cap.isOpened()):
 
         # calculate optical flow
         if method is "optical":
-            if flowType is "LK1":
-
-                #if first is True:
-                p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
-
-                window_size = 5
-                I1g = im1.copy()
-                I2g = im2.copy()
-                tau = 1e-2
-
-                kernel_x = np.array([[-1., 1.], [-1., 1.]])
-                kernel_y = np.array([[-1., -1.], [1., 1.]])
-                kernel_t = np.array([[1., 1.], [1., 1.]])  # *.25
-                w = window_size // 2  # window_size is odd, all the pixels with offset in between [-w, w] are inside the window
-                I1g = I1g / 255.  # normalize pixels
-                I2g = I2g / 255.  # normalize pixels
-                # Implement Lucas Kanade
-                # for each point, calculate I_x, I_y, I_t
-                mode = 'same'
-                fx = signal.convolve2d(I1g, kernel_x, boundary='symm', mode=mode)
-                fy = signal.convolve2d(I1g, kernel_y, boundary='symm', mode=mode)
-                ft = signal.convolve2d(I2g, kernel_t, boundary='symm', mode=mode) + signal.convolve2d(I1g, -kernel_t,
-                                                                                                      boundary='symm',
-                                                                                                      mode=mode)
-                u = []
-                v = []
-                # within window window_size * window_size
-                for (i, j) in p0[:, 0]:
-                    i = int(i)
-                    j = int(j)
-                    Ix = fx[i - w:i + w + 1, j - w:j + w + 1].flatten()
-                    Iy = fy[i - w:i + w + 1, j - w:j + w + 1].flatten()
-                    It = ft[i - w:i + w + 1, j - w:j + w + 1].flatten()
-
-                    b = np.reshape(It, (It.shape[0], 1))  # get b here
-                    A = np.vstack((Ix, Iy)).T  # get A here
-
-                    if np.min(abs(np.linalg.eigvals(np.matmul(A.T, A)))) >= tau:
-                        nu = np.matmul(np.linalg.pinv(A), b)  # get velocity here
-                        u.append(nu[0])
-                        v.append(nu[1])
-                    else:
-                        u.append(0)
-                        v.append(0)
-
-                # Select good points
-                vis = frame.copy()
-                i = 0
-                p2 = np.zeros_like(p0)
-                for (x0, y0) in p0[:, 0]:
-                    pt = np.array([y0, x0])
-                    uv = np.array([u[i], v[i]]) * 4
-                    uv = np.reshape(uv, 2)
-                    pt2 = ((pt + uv)).astype(np.int)
-                    pt = np.flip(pt)
-                    pt2 = np.flip(pt2)
-                    p2[i] = pt2
-                    vis = cv2.arrowedLine(vis, tuple(pt), tuple(pt2), red, 1)
-                    i = i + 1
-
-
-                cv2.imshow("vis", vis)
-
-                p0 = p2
-            elif flowType is "DLK1":
-
-
+            if flowType is "DLK1":
                 u, v = optical_flow(im1, im2, 15)
                 # Select good points
                 vis = frame.copy()
@@ -419,6 +353,7 @@ while(cap.isOpened()):
 
             elif flowType is "LK":
 
+                # add points to be tracked
                 if first is True:
                     p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
                     movement_weight = np.zeros_like(im1)
@@ -431,6 +366,7 @@ while(cap.isOpened()):
                 else:
                     p0 = p2.reshape(-1, 1, 2)
 
+                # sparse lucas kanade
                 p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, p0, None, **lk_params)
 
                 #if a point goes out of frame or near edge, remove it
@@ -443,6 +379,8 @@ while(cap.isOpened()):
                         err = np.delete(err, i, 0)
                     else:
                         i = i + 1
+
+                # delete points if they get to close to another point
                 tree = cKDTree(p1.reshape(-1,2))
                 rows_delete = tree.query_pairs(r=5)
                 for p in rows_delete:
@@ -463,15 +401,16 @@ while(cap.isOpened()):
                 for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
                     if good:
                         cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
-                    flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2))
-                    flowVectorLength_x.append(x1 - x0)
-                    flowVectorLength_y.append(y1 - y0)
-                    flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0))))
+                    flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)) # calculate flow vector length (speed)
+                    flowVectorLength_x.append(x1 - x0) # calculate the x vector
+                    flowVectorLength_y.append(y1 - y0) # calculate the y vector
+                    flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0)))) # calculate flow vector angle (direction)
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
 
                 points_video.write(vis)
 
+                # calculate the mean, std, and median of the x, y vectors
                 flowVectorLength_average = np.mean(flowVectorLength)
                 flowVectorLength_median = np.median(flowVectorLength)
                 flowVectorLength_std = np.std(flowVectorLength)
@@ -487,6 +426,7 @@ while(cap.isOpened()):
                 for i in range(0, len(flowAngle), 1):
                     flowVectorLength_compestated.append(flowVectorLength[i] * math.cos(flowAngle_median - flowAngle[i]))
 
+                #graph all the vectors and angles
                 if False:
                     Z = np.vstack((flowVectorLength, flowAngle)).T
                     Z = np.float32(Z)
@@ -510,6 +450,7 @@ while(cap.isOpened()):
                 mask = np.zeros_like(im1)
                 i = 0
 
+                # filter out the background
                 outliers = []
                 inliers = []
                 std_tolerance = 1.0
@@ -526,6 +467,7 @@ while(cap.isOpened()):
                         inliers.append([x1, y1])
                     i = i + 1
 
+                # determine who is likely moving
                 if len(outliers) < len(inliers):
                     for (x1, y1) in outliers:
                         cv2.circle(mask, (x1, y1), 13, 255, -1)
@@ -559,10 +501,13 @@ while(cap.isOpened()):
                     # and update the text
                     (x, y, w, h) = cv2.boundingRect(c)
                     cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
-                    cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w])
-                    cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w])
-                    objClass = objTypeByPath("images/object_" + str(i) + "_" + str(uid) + ".jpg")
-                    cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA)
+                    cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w]) # display image on screen for debug informatio
+                    #obj = frame[y:y + h, x:x + w] # slice object from the full frame
+                    if os.path.isdir("images") is False: # check that image dir already exist
+                        os.mkdir("images")
+                    cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w]) # write object image to file
+                    objClass = objTypeByPath("images/object_" + str(i) + "_" + str(uid) + ".jpg") # pass object image file path to object detector
+                    cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA) # display detected object class name
                     i=i+1
                     uid=uid+1
 
