@@ -21,6 +21,8 @@ from scipy.spatial import distance as dist
 from collections import OrderedDict
 from scipy.spatial import cKDTree
 
+os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
+
 uid = 0
 
 # the cnn class which inherit from torch.nn.Module class
