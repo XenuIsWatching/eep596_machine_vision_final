@@ -10,7 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import matplotlib.pyplot as plt
-import numpy as np
 import pdb
 import tqdm
 import torch.optim as optim
@@ -21,22 +20,42 @@ from scipy.spatial import distance as dist
 from collections import OrderedDict
 from scipy.spatial import cKDTree
 
+#import cnn as cnn
+#from cnn import CNN
+
+warnings.filterwarnings('ignore')
+
+outPyWrite = False
+writeToImgFolder = False
+
 os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-# the cnn class which inherit from torch.nn.Module class
-layer = 2
+cap = cv2.VideoCapture('data/sample_video/V3V100007_017.avi')#V3V100005_010.avi
+frameSkipped = 1
+filterType = "bilateral"
+method = "optical"
+flowType = "LK"
+contourAreaCutoff = 800
+lk_params = dict( winSize =(19, 19),
+                  maxLevel=4,
+                  criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
-#init data loader
+feature_params = dict( maxCorners=200,
+                       qualityLevel=0.001,
+                       minDistance=4,
+                       blockSize=19)
+
+# the cnn class which inherit from torch.nn.Module class
+### cnn.py start
+layer = 2
 DATADIR = os.getcwd()+'/data/train_img'
 BATCH_SIZE = 16
 IMG_SIZE = 100
 CENTER_SIZE = IMG_SIZE+IMG_SIZE*0.2#20
-CATEGORY_SIZE = 2 #how many folders/categories we have in data folder, for now only car, plane, and person
-
-#CATAGORIES = ["car","person","plane"]
-CATAGORIES = ["car","motorbike","person","plane"]
+CATAGORIES = ["background","car","person"]
+CATEGORY_SIZE = len(CATAGORIES)
 
 # transform to do random affine and cast image to PyTorch tensor
 trans_ = torchvision.transforms.Compose(
@@ -93,31 +112,42 @@ class CNN(nn.Module):
 m = CNN()
 m = torch.load("model.pt")
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_017.avi')
-frameSkipped = 1
-filterType = "bilateral"
-method = "optical"
-flowType = "LK"
-contourAreaCutoff = 800
-lk_params = dict( winSize =(19, 19),
-                  maxLevel=4,
-                  criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
-
-feature_params = dict( maxCorners=200,
-                       qualityLevel=0.001,
-                       minDistance=4,
-                       blockSize=19)
-
-def image_loader(loader, image_name):
+def image_loader(loader, image_name, printImg = False):
     image = pil.Image.open(image_name)
+    if printImg == True:
+        print(image)
     image = loader(image).float()
     image = torch.tensor(image, requires_grad=True)
     image = image.unsqueeze(0)
     return image
 
 def objTypeByPath(img_dir):
-    idx = np.argmax(m(image_loader(trans_, img_dir)).detach().numpy())
+    idx = np.argmax(m(image_loader(trans_, img_dir, printImg = True)).detach().numpy())
     return CATAGORIES[idx]
+
+def bgrToRgb(nparrimg):
+    for i in range(0,len(nparrimg)):
+        temp = nparrimg[i][0]
+        nparrimg[i][0] = nparrimg[i][3]
+        nparrimg[i][3] = temp
+    return nparrimg
+
+#np.array img loader (_trans, nparrimg)
+def npArrImg_loader(loader, nparrimg, printImg = False):
+    nparrimg = bgrToRgb(nparrimg)
+    image = pil.Image.fromarray(nparrimg.astype('uint8'), 'RGB')
+    if printImg == True:
+        print(image)
+    image = loader(image).float()
+    image = torch.tensor(image, requires_grad=True)
+    image = image.unsqueeze(0)
+    return image
+
+def objTypeByNpImg(nparrimg):
+    idx = np.argmax(m(npArrImg_loader(trans_, nparrimg)).detach().numpy())
+    return CATAGORIES[idx]
+
+### cnn.py end
 
 def checkedTrace(img0, img1, p0, back_threshold = 1.0):
     p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
@@ -299,8 +329,9 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
 # Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
-points_video = cv2.VideoWriter('points.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
-box_video = cv2.VideoWriter('box.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
+if outPyWrite is True:
+    points_video = cv2.VideoWriter('points.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
+    box_video = cv2.VideoWriter('box.avi', cv2.VideoWriter_fourcc('M','J','P','G'), fps, (frame_width,frame_height))
 
 #for y in range(0, frame_height - 1, 1):
 #    for x in range(0, frame_width - 1, 1):
@@ -410,7 +441,8 @@ while(cap.isOpened()):
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     cv2.imshow("vis", vis)
 
-                points_video.write(vis)
+                if outPyWrite is True:
+                    points_video.write(vis)
 
                 # calculate the mean, std, and median of the x, y vectors
                 flowVectorLength_average = np.mean(flowVectorLength)
@@ -494,6 +526,7 @@ while(cap.isOpened()):
                 # loop over the contours
                 box = frame.copy()
                 i=1
+                isBackground = False
                 for c in cnts:
                     # if the contour is too small, ignore it
                     if cv2.contourArea(c) < contourAreaCutoff:
@@ -502,19 +535,25 @@ while(cap.isOpened()):
                     # compute the bounding box for the contour, draw it on the frame,
                     # and update the text
                     (x, y, w, h) = cv2.boundingRect(c)
-                    cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
                     cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w]) # display image on screen for debug informatio
-                    #obj = frame[y:y + h, x:x + w] # slice object from the full frame
-                    if os.path.isdir("images") is False: # check that image dir already exist
-                        os.mkdir("images")
-                    cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w]) # write object image to file
-                    objClass = objTypeByPath("images/object_" + str(i) + "_" + str(uid) + ".jpg") # pass object image file path to object detector
-                    cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA) # display detected object class name
+                    #np array image
+                    npArrImg = frame[y:y + h, x:x + w] # slice object from the full frame
+                    if writeToImgFolder is True:
+                        if os.path.isdir("images") is False: # check that image dir already exist
+                           os.mkdir("images")
+                        cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w]) # write object image to file
+                    objClass = objTypeByNpImg(npArrImg)
+                    if objClass is "background":
+                        isBackground = True
+                    if isBackground is False:
+                        cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
+                        cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA) # display detected object class name
                     i=i+1
                     uid=uid+1
 
                 cv2.imshow("box", box)
-                box_video.write(box)
+                if outPyWrite is True:
+                    box_video.write(box)
 
 
                 if False:
