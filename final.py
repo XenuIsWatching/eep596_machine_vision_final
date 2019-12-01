@@ -93,19 +93,23 @@ class CNN(nn.Module):
 m = CNN()
 m = torch.load("model.pt")
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_017.avi')
+cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_015.avi')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
 flowType = "LK"
-contourAreaCutoff = 800
+homographyPoints = True
+pointDistance = 7
+contourAreaCutoff = pointDistance * 90
+cornerQuality = 0.001
+std_tolerance = 1.5
 lk_params = dict( winSize =(19, 19),
                   maxLevel=4,
                   criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
 feature_params = dict( maxCorners=200,
-                       qualityLevel=0.001,
-                       minDistance=4,
+                       qualityLevel=cornerQuality,
+                       minDistance=15,
                        blockSize=19)
 
 def image_loader(loader, image_name):
@@ -360,13 +364,21 @@ while(cap.isOpened()):
                     p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
                     movement_weight = np.zeros_like(im1)
                 elif len(p2) < 250:
-                    mask = calculate_region_of_interest(im1, p2, 6)
+                    mask = calculate_region_of_interest(im1, p2, pointDistance)
                     cv2.imshow('point mask', mask)
-                    p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = 250 - len(p2), qualityLevel = 0.001, minDistance = 6, blockSize = 19 )
+                    p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = 300 - len(p2), qualityLevel = cornerQuality, minDistance = pointDistance, blockSize = 19 )
                     p2 = p2.reshape(-1, 1, 2)
-                    p0 = np.concatenate((p0, p2), 0)
+                    if p0 is not None:
+                        p0 = np.concatenate((p0, p2), 0)
+                    else:
+                        p0 = p2
                 else:
                     p0 = p2.reshape(-1, 1, 2)
+
+                if p0.shape[0] < 200:
+                    cornerQuality = cornerQuality - cornerQuality/2
+                elif p0.shape[0] > 275 and cornerQuality < 0.5:
+                    cornerQuality = cornerQuality + cornerQuality
 
                 # sparse lucas kanade
                 p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, p0, None, **lk_params)
@@ -384,7 +396,7 @@ while(cap.isOpened()):
 
                 # delete points if they get to close to another point
                 tree = cKDTree(p1.reshape(-1,2))
-                rows_delete = tree.query_pairs(r=5)
+                rows_delete = tree.query_pairs(r=pointDistance*0.5)
                 for p in rows_delete:
                     p0 = np.delete(p0, p, 0)
                     p1 = np.delete(p1, p, 0)
@@ -399,44 +411,51 @@ while(cap.isOpened()):
                 #uvs = np.vstack((flowVectorLength_x, flowVectorLength_y)).T
                 #z = np.ones_like(flowVectorLength_x)
                 #uvzs = np.vstack((flowVectorLength_x, flowVectorLength_y, z)).T
-                h, mask = cv2.findHomography(good_old, good_new, cv2.RANSAC, 5.0)
+                h, _ = cv2.findHomography(good_old, good_new, cv2.RANSAC, 8.0)
+
                 #for vec in uvzs:
                 #    vec = vec.T
                 o = np.ones(p1.shape[0])
                 o = o.reshape(-1,1)
-                p1z = np.dstack((p1, o))
-                pT = p1
-                i = 0
-                test = p1[2,:,:]
-                for m in p1z:
-                    v = np.matmul(h, m.T)
+                p0z = np.dstack((p0, o))
+                pT = p0.copy()
+                iter = 0
+                for p in p0z:
+                    v = np.matmul(h, p.T)
                     v = v.T
                     v = np.delete(v, 2, 1) # remove z axis
                     v = v.reshape((1,1,2))
-                    pT[i,:,:] = v
-                    i = i + 1
-
-                #p1 = pT
+                    pT[iter,:,:] = v
+                    iter = iter + 1
 
                 vis = frame.copy()
                 flowVectorLength = []
                 flowVectorLength_x = []
                 flowVectorLength_y = []
                 flowAngle = []
-                for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
+                for (x0, y0), (x1, y1), (xT, yT), good in zip(p0[:, 0], p1[:, 0], pT[:, 0], st[:, 0]):
                     if good:
                         cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
-                    flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)) # calculate flow vector length (speed)
-                    flowVectorLength_x.append(x1 - x0) # calculate the x vector
-                    flowVectorLength_y.append(y1 - y0) # calculate the y vector
-                    flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0)))) # calculate flow vector angle (direction)
+                        if homographyPoints is True:
+                            flowVectorLength.append(math.sqrt((x1 - xT) ** 2 + (y1 - yT) ** 2)) # calculate flow vector length (speed)
+                            flowVectorLength_x.append(x1 - xT) # calculate the x vector
+                            flowVectorLength_y.append(y1 - yT) # calculate the y vector
+                            flowAngle.append(math.degrees(math.atan2((y1 - yT), (x1 - xT)))) # calculate flow vector angle (direction)
+                        else:
+                            flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)) # calculate flow vector length (speed)
+                            flowVectorLength_x.append(x1 - x0) # calculate the x vector
+                            flowVectorLength_y.append(y1 - y0) # calculate the y vector
+                            flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0)))) # calculate flow vector angle (direction)
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
-                    cv2.imshow("vis", vis)
+                    #vis = cv2.circle(vis, (x0, y0), 2, (red, green)[good], -1)
+                    vis = cv2.circle(vis, (xT, yT), 2, (255, 0, 0), -1)
 
+                x = p1[:, 0, 0] - p0[:, 0, 0]
+                y = p1[:, 0, 1] - p0[:, 0, 1]
+                mag, ang = cv2.cartToPolar(x, y, angleInDegrees=False)
 
-
-
-                points_video.write(vis)
+                im2Reg = cv2.warpPerspective(im2, h, (frame_width, frame_height), flags=cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
+                cv2.imshow("im2Reg", im2Reg)
 
                 # calculate the mean, std, and median of the x, y vectors
                 flowVectorLength_average = np.mean(flowVectorLength)
@@ -454,25 +473,44 @@ while(cap.isOpened()):
                     flowVectorLength_compestated.append(flowVectorLength[i] * math.cos(flowAngle_median - flowAngle[i]))
 
                 #graph all the vectors and angles
-                if False:
+                if True:
                     Z = np.vstack((flowVectorLength, flowAngle)).T
                     Z = np.float32(Z)
-                    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.01)
-                    ret, label, center = cv2.kmeans(Z, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-                    A = Z[label.ravel() == 0]
-                    B = Z[label.ravel() == 1]
+                    rcolors = ang
                     plt.clf()
-                    plt.scatter(A[:, 0], A[:, 1])
-                    plt.scatter(B[:, 0], B[:, 1], c='r')
-                    plt.scatter(center[:, 0], center[:, 1], s=80, c='y', marker='s')
-                    plt.axis([0,30,-180,180])
-                    plt.xlabel('Distance'), plt.ylabel('Angle')
-                    plt.show()
+                    ax = plt.subplot(221, polar=True)
+                    #c = plt.scatter(ang, mag, c=rcolors)
+                    #c.set_alpha(0.75)
 
-                    fig = plt.figure()
-                    ax = fig.add_subplot(111, polar=True)
-                    c = ax.scatter(B[:, 1], B[:, 0], c='r')
-                    c = ax.scatter(A[:, 1], A[:, 0])
+                    vx = plt.subplot(111)
+                    vx.hist2d(flowVectorLength_x, flowVectorLength_y, bins=(25, 25), cmap=plt.cm.jet)
+                    vx.scatter(flowVectorLength_x_average, flowVectorLength_y_average)
+                    vx.annotate("mean",(flowVectorLength_x_average, flowVectorLength_y_average))
+                    vx.scatter(flowVectorLength_x_median, flowVectorLength_y_median)
+                    vx.annotate("median", (flowVectorLength_x_median, flowVectorLength_y_median))
+                    stdRect = plt.Rectangle((flowVectorLength_x_average-flowVectorLength_x_std, flowVectorLength_y_average-flowVectorLength_y_std), flowVectorLength_x_std*2, flowVectorLength_y_std*2, color='r', fill=False)
+                    vx.add_artist(stdRect)
+
+
+                    #plt.clf()
+                    #plt.hist2d(flowVectorLength, flowAngle, bins=25)
+                    #zplt.show()
+                    #criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.01)
+                    #ret, label, center = cv2.kmeans(Z, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+                    #A = Z[label.ravel() == 0]
+                    #B = Z[label.ravel() == 1]
+
+                    #plt.scatter(A[:, 0], A[:, 1])
+                    #plt.scatter(B[:, 0], B[:, 1], c='r')
+                    #plt.scatter(center[:, 0], center[:, 1], s=80, c='y', marker='s')
+                    #plt.axis([0,30,-180,180])
+                    #plt.xlabel('Distance'), plt.ylabel('Angle')
+                    #plt.draw()
+
+                    #fig = plt.figure()
+                    #ax = fig.add_subplot(111, polar=True)
+                    #c = ax.scatter(B[:, 1], B[:, 0], c='r')
+                    #c = ax.scatter(A[:, 1], A[:, 0])
 
                 mask = np.zeros_like(im1)
                 i = 0
@@ -480,47 +518,41 @@ while(cap.isOpened()):
                 # filter out the background
                 outliers = []
                 inliers = []
-                std_tolerance = 1.0
-                for (x0, y0), (x1, y1) in zip(p0[:, 0], p1[:, 0]):
-                    #if x1 != x0 and y1 != y0:
-                        #movement_weight[x1, y1] = movement_weight[x0, y0]
-                        #movement_weight[x0, y0] = 0
-                    if (flowVectorLength_x[i] > (flowVectorLength_x_median + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_median - flowVectorLength_x_std*std_tolerance)) \
-                        and ((flowVectorLength_y[i] > (flowVectorLength_y_median + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_median - flowVectorLength_y_std*std_tolerance))):
-                        #ovement_weight[x1, y1] = movement_weight[x1, y1] + 1
-                        outliers.append([x1, y1])
-                    else:
-                        #ovement_weight[x1, y1] = movement_weight[x1, y1] - 1
-                        inliers.append([x1, y1])
-                    i = i + 1
+                for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
+                    if good:
+                        if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)) \
+                            and ((flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance))):
+                            outliers.append([x1, y1])
+                        else:
+                            inliers.append([x1, y1])
+                        i = i + 1
 
                 # determine who is likely moving
                 if len(outliers) < len(inliers):
                     for (x1, y1) in outliers:
-                        cv2.circle(mask, (x1, y1), 13, 255, -1)
+                        cv2.circle(mask, (x1, y1), int(pointDistance*0.8), 255, -1)
                 else:
                     for (x1, y1) in inliers:
-                        cv2.circle(mask, (x1, y1), 13, 255, -1)
+                        cv2.circle(mask, (x1, y1), int(pointDistance*0.8), 255, -1)
 
                 cv2.imshow("mask", mask)
 
-                kernel = np.ones((11, 11), np.uint8)
-                erosion = cv2.erode(mask, kernel, iterations=1)
-                cv2.imshow("erosion", erosion)
+                kernel = np.ones((10, 10), np.uint8)
 
                 # define dilate to fo fill in holes
                 dilate = cv2.dilate(mask, kernel, iterations=1)
                 cv2.imshow("dilate", dilate)
 
-                contours = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-                cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = cv2.findContours(dilate.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 cnts = imutils.grab_contours(cnts)
 
                 # loop over the contours
                 box = frame.copy()
                 i=1
+                cntArea = []
                 for c in cnts:
                     # if the contour is too small, ignore it
+                    cntArea.append(cv2.contourArea(c))
                     if cv2.contourArea(c) < contourAreaCutoff:
                         continue
 
@@ -528,7 +560,7 @@ while(cap.isOpened()):
                     # and update the text
                     (x, y, w, h) = cv2.boundingRect(c)
                     cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
-                    cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w]) # display image on screen for debug informatio
+                    #cv2.imshow(("object_" + str(i)), frame[y:y+h, x:x+w]) # display image on screen for debug information
                     #obj = frame[y:y + h, x:x + w] # slice object from the full frame
                     if os.path.isdir("images") is False: # check that image dir already exist
                         os.mkdir("images")
@@ -538,9 +570,28 @@ while(cap.isOpened()):
                     i=i+1
                     uid=uid+1
 
+                cntAreaMean = np.mean(cntArea)
+
+                # write the number of points in the corner
+                cv2.putText(vis, "total points: " + str(p1.shape[0]), (5, 10), cv2.FONT_HERSHEY_DUPLEX, 0.25, green, 1,
+                            cv2.LINE_AA)
+                cv2.putText(vis, "background: " + str(len(inliers)), (5, 18), cv2.FONT_HERSHEY_DUPLEX, 0.25, green, 1,
+                            cv2.LINE_AA)
+                cv2.putText(vis, "foreground: " + str(len(outliers)), (5, 26), cv2.FONT_HERSHEY_DUPLEX, 0.25, green, 1,
+                            cv2.LINE_AA)
+                cv2.putText(vis, "corner quality: " + str(cornerQuality), (5, 34), cv2.FONT_HERSHEY_DUPLEX, 0.25, green, 1,
+                            cv2.LINE_AA)
+                cv2.putText(vis, "point distance: " + str(pointDistance), (5, 42), cv2.FONT_HERSHEY_DUPLEX, 0.25, green,
+                            1,
+                            cv2.LINE_AA)
+                cv2.imshow("vis", vis)
+                points_video.write(vis)
+
                 cv2.imshow("box", box)
                 box_video.write(box)
 
+                plt.draw()
+                plt.show(block=False)
 
                 if False:
                     p2 = cv2.goodFeaturesToTrack(im1, mask=None, **feature_params)
@@ -551,7 +602,17 @@ while(cap.isOpened()):
                     #p0 = [tuple(row) for row in p0]
                     #p0 = np.asarray(p0)
 
-                p2 = np.concatenate((np.asarray(outliers), np.asarray(inliers)))
+                if len(outliers) is 0:
+                    p2 = np.asarray(inliers)
+                else:
+                    p2 = np.concatenate((np.asarray(outliers), np.asarray(inliers)))
+
+                c = cv2.waitKey(1)
+                if 'w' == chr(c & 255):
+                    pointDistance = pointDistance + 1
+                elif 's' == chr(c & 255):
+                    if pointDistance > 1:
+                        pointDistance = pointDistance - 1
 
             elif flowType is "DLK":
                 if first is True:
@@ -601,181 +662,6 @@ while(cap.isOpened()):
                     i = i + 1
                 cv2.imshow('Dense LK', vis)
 
-            elif flowType is "OF":
-                #Dense Optical Flow
-                opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-                cv2.imshow('flow', draw_flow(im1, opt_flow))
-                flowVectorLength = []
-                flowVectorLength_x = []
-                flowVectorLength_y = []
-                flowAngle = []
-                for y in range(0, opt_flow.shape[0] - 1, 1):
-                    for x in range(0, opt_flow.shape[1] - 1, 1):
-                        flowVectorLength.append(math.sqrt(opt_flow[y, x, 0] ** 2 + opt_flow[y, x, 1] ** 2))
-                        flowVectorLength_x.append(opt_flow[y, x, 1])
-                        flowVectorLength_y.append(opt_flow[y, x, 0])
-                        flowAngle.append(math.atan(opt_flow[y, x, 1] / opt_flow[y, x, 0]))
-
-                flowVectorLength_average = np.mean(flowVectorLength)
-                flowVectorLength_std = np.std(flowVectorLength)
-                flowVectorLength_x_average = np.mean(flowVectorLength_x)
-                flowVectorLength_x_std = np.std(flowVectorLength_x)
-                flowVectorLength_y_average = np.mean(flowVectorLength_y)
-                flowVectorLength_y_std = np.std(flowVectorLength_y)
-                flowAngle_median = np.median(flowAngle)
-                fig, axs = plt.subplots(2, 2, figsize=(5, 5))
-
-                off = frame.copy()
-                mask = np.zeros_like(im1)
-                i = 0
-                for y in range(0, opt_flow.shape[0] - 1, 1):
-                    for x in range(0, opt_flow.shape[1] - 1, 1):
-                        if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std)):
-                            cv2.circle(mask, (x, y), 10, 255, -1)
-                        elif (flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std)):
-                            cv2.circle(mask, (x, y), 10, 255, -1)
-                        i = i + 1
-
-                # define dilate to fo fill in holes
-                mask = cv2.dilate(mask, None, iterations=2)
-
-                contours = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-                cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cnts = imutils.grab_contours(cnts)
-
-                # loop over the contours
-                box = frame.copy()
-                for c in cnts:
-                    # if the contour is too small, ignore it
-                    if cv2.contourArea(c) < 200:
-                        continue
-
-                    # compute the bounding box for the contour, draw it on the frame,
-                    # and update the text
-                    (x, y, w, h) = cv2.boundingRect(c)
-                    cv2.rectangle(box, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-                cv2.imshow("mask", mask)
-                cv2.imshow("box", box)
-
-                kmeans = False
-                if kmeans is True:
-                    Z = opt_flow.reshape((-1, 2))
-
-                    # convert to np.float32
-                    Z = np.float32(Z)
-
-                    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-                    K = 2
-                    ret, label, center = cv2.kmeans(Z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-                    center = np.uint8(center)
-                    res = cv2.normalize(label.reshape(im1), 0, 255)
-                    result_image = res
-
-                    cv2.imshow("km", result_image)
-
-            elif flowType is "TR":
-                flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
-                # prevgray = frame_gray
-
-                Z = flow.reshape((-1, 2))
-
-                # convert to np.float32
-                Z = np.float32(Z)
-
-                # define criteria, number of clusters(K) and apply kmeans()
-                criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-                K = 2
-                ret, label, center = cv2.kmeans(Z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-
-                # Now convert back into uint8, and make original image
-                center = np.uint8(center)
-                res = center[label.flatten()]
-
-                res = res[:, 0]
-                res = res.reshape((im1.shape))
-                new_res = res
-
-                # frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                vis = frame.copy()
-
-                vis1 = frame.copy()
-
-                if len(tracks) > 0:
-                    img0, img1 = im2, res
-                    p0 = np.float32([tr[-1] for tr in tracks]).reshape(-1, 1, 2)
-                    p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
-                    p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
-                    d = abs(p0 - p0r).reshape(-1, 2).max(-1)
-                    good = d < 1
-                    new_tracks = []
-                    for tr, (x, y), good_flag in zip(tracks, p1.reshape(-1, 2), good):
-                        if not good_flag:
-                            continue
-                        tr.append((x, y))
-                        if len(tr) > 15:
-                            del tr[0]
-                        new_tracks.append(tr)
-                        cv2.circle(vis, (x, y), 2, (0, 255, 0), -1)
-                    tracks = new_tracks
-                    cv2.polylines(vis, [np.int32(tr) for tr in tracks], False, (0, 255, 0))
-                    #draw_str(vis, (20, 20), 'track count: %d' % len(tracks))
-
-                mask = np.zeros_like(res)
-                mask[:] = 255
-                for x, y in [np.int32(tr[-1]) for tr in tracks]:
-                    cv2.circle(mask, (x, y), 5, 0, -1)
-                p = cv2.goodFeaturesToTrack(res, mask=mask, **feature_params)
-                if p is not None:
-                    for x, y in np.float32(p).reshape(-1, 2):
-                        tracks.append([(x, y)])
-
-                # regions = blobdet.detect(new_res)
-
-                # if regions!=[]:
-                #   cv2.drawKeypoints(res,regions,vis1, (0,255, 0),4)
-
-                # prev_res = res
-                cv2.imshow('lk_track', vis)
-                cv2.imshow('blob', vis1)
-                cv2.imshow('flow', draw_flow(im1, flow))
-                cv2.imshow('res2', res)
-
-                prevgray2c = cv2.cvtColor(im2, cv2.COLOR_GRAY2BGR)
-
-                allf = np.hstack((vis, prevgray2c))
-                cv2.imshow('all', allf)
-
-            else:
-                if init_flow is True:
-                    opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
-                    init_flow = False
-                else:
-                    opt_flow = cv2.calcOpticalFlowFarneback(im2, im1, None, 0.5, 5, 13, 10, 5, 1.1,
-                                                            cv2.OPTFLOW_USE_INITIAL_FLOW)
-                display_flow(frame, opt_flow)
-                flowVectorLength = []
-                for y in range(0, opt_flow.shape[0] - 1, 1):
-                    for x in range(0, opt_flow.shape[1] - 1, 1):
-                        flowVectorLength.append(math.sqrt(opt_flow[y,x,0]**2 + opt_flow[y,x,1]**2))
-
-                flowVectorLength_average = np.mean(flowVectorLength)
-                flowVectorLength_stdev = np.std(flowVectorLength)
-                off = frame.copy()
-
-                for y in range(0, opt_flow.shape[0] - 1, 1):
-                    for x in range(0, opt_flow.shape[1] - 1, 1):
-                        if (flowVectorLength[y* (opt_flow.shape[1]-1) + x] > (flowVectorLength_average + flowVectorLength_stdev)):
-                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
-                        elif (flowVectorLength[y* (opt_flow.shape[1]-1) + x] < (flowVectorLength_average - flowVectorLength_stdev)):
-                            cv2.circle(off, (x, y), 2, (0, 255, 0), -1)
-                cv2.imshow("off",off)
-            #mag, ang = cv2.cartToPolar(opt_flow[..., 0], opt_flow[..., 1])
-            #mag_avg = sum(mag) / len(mag)
-            #mag_std = stdev(mag)
-            #for i in mag:
-            #    if i < mag_avg + mag_std:
-            #        break
         elif method is "feature":
             # detect key feature points
             featureDetectorType = "ORB"
