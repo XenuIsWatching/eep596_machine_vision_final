@@ -32,17 +32,18 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100005_010.avi')
+cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_015.avi')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
 flowType = "LK"
+backgroundFilter = "median"
 homographyPoints = True
-ransacThreshold = 10.0
-pointDistance = 15
-contourAreaCutoff = pointDistance * 80
+ransacThreshold = 3.0
+pointDistance = 16
+contourAreaCutoff = pointDistance * 90
 cornerQuality = 0.001
-std_tolerance = 1.0
+std_tolerance = 1.2
 lk_params = dict( winSize =(19, 19),
                   maxLevel=4,
                   criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -439,22 +440,20 @@ while(cap.isOpened()):
                 good_new = p1[st == 1]
                 good_old = p0[st == 1]
 
-                # remove the rotation from the camera moving in x, y, z coordinates
-                #uvs = np.vstack((flowVectorLength_x, flowVectorLength_y)).T
-                #z = np.ones_like(flowVectorLength_x)
-                #uvzs = np.vstack((flowVectorLength_x, flowVectorLength_y, z)).T
+                # calculate the Homography matrix for frame t and t-1
                 h, _ = cv2.findHomography(good_old, good_new, cv2.RANSAC, ransacThreshold)
 
-                #for vec in uvzs:
-                #    vec = vec.T
-                o = np.ones(p1.shape[0])
-                o = o.reshape(-1,1)
-                p0z = np.dstack((p0, o))
-                pT = p0.copy()
+                # add 1 column for z with x y vector matrix
+                o = np.ones(p1.shape[0]) # create matrix full of 1
+                o = o.reshape(-1,1) # reshape to vertical
+                p0z = np.dstack((p0, o)) # add column to xy vector
+                pT = p0.copy() # copy original points (really not necessary b/c overwritten later..)
                 iter = 0
                 for p in p0z:
-                    v = np.matmul(h, p.T)
-                    v = v.T
+                    v = np.matmul(h, p.T) # multiply homography matrix with xyz vertical matrix
+                    v = v.T # Transpose for easier delete
+                    v[0, 0] = v[0, 0] / v[0, 2] # x / z
+                    v[0, 1] = v[0, 1] / v[0, 2] # y / z
                     v = np.delete(v, 2, 1) # remove z axis
                     v = v.reshape((1,1,2))
                     pT[iter,:,:] = v
@@ -538,10 +537,16 @@ while(cap.isOpened()):
                     cx.annotate("mean", (flowVectorLength_x_average, flowVectorLength_y_average))
                     cx.scatter(flowVectorLength_x_median, flowVectorLength_y_median)
                     cx.annotate("median", (flowVectorLength_x_median, flowVectorLength_y_median))
-                    stdRect = plt.Rectangle((flowVectorLength_x_average - flowVectorLength_x_std,
-                                             flowVectorLength_y_average - flowVectorLength_y_std),
-                                            flowVectorLength_x_std * 2, flowVectorLength_y_std * 2, color='r',
-                                            fill=False)
+                    if backgroundFilter is "median":
+                        stdRect = plt.Rectangle((flowVectorLength_x_median - flowVectorLength_x_std,
+                                                 flowVectorLength_y_median - flowVectorLength_y_std),
+                                                flowVectorLength_x_std * 2, flowVectorLength_y_std * 2, color='r',
+                                                fill=False)
+                    elif backgroundFilter is "mean":
+                        stdRect = plt.Rectangle((flowVectorLength_x_average - flowVectorLength_x_std,
+                                                 flowVectorLength_y_average - flowVectorLength_y_std),
+                                                flowVectorLength_x_std * 2, flowVectorLength_y_std * 2, color='r',
+                                                fill=False)
                     cx.add_artist(stdRect)
 
                     ax = plt.subplot(223, polar=True)
@@ -557,7 +562,16 @@ while(cap.isOpened()):
                     vx.annotate("mean",(flowVectorLength_xH_average, flowVectorLength_yH_average))
                     vx.scatter(flowVectorLength_xH_median, flowVectorLength_yH_median)
                     vx.annotate("median", (flowVectorLength_xH_median, flowVectorLength_yH_median))
-                    stdRect = plt.Rectangle((flowVectorLength_xH_average-flowVectorLength_xH_std, flowVectorLength_yH_average-flowVectorLength_yH_std), flowVectorLength_xH_std*2, flowVectorLength_yH_std*2, color='r', fill=False)
+                    if backgroundFilter is "median":
+                        stdRect = plt.Rectangle((flowVectorLength_xH_median - flowVectorLength_xH_std,
+                                                 flowVectorLength_yH_median - flowVectorLength_yH_std),
+                                                flowVectorLength_xH_std * 2, flowVectorLength_yH_std * 2, color='r',
+                                                fill=False)
+                    elif backgroundFilter is "mean":
+                        stdRect = plt.Rectangle((flowVectorLength_xH_average - flowVectorLength_xH_std,
+                                                 flowVectorLength_yH_average - flowVectorLength_yH_std),
+                                                flowVectorLength_xH_std * 2, flowVectorLength_yH_std * 2, color='r',
+                                                fill=False)
                     vx.add_artist(stdRect)
 
 
@@ -589,18 +603,44 @@ while(cap.isOpened()):
                 inliers = []
                 for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
                     if good:
-                        if homographyPoints is True:
-                            if (flowVectorLength_xH[i] > (flowVectorLength_xH_average + flowVectorLength_xH_std*std_tolerance)) or (flowVectorLength_xH[i] < (flowVectorLength_xH_average - flowVectorLength_xH_std*std_tolerance)) \
-                                and ((flowVectorLength_yH[i] > (flowVectorLength_yH_average + flowVectorLength_yH_std*std_tolerance)) or (flowVectorLength_yH[i] < (flowVectorLength_yH_average - flowVectorLength_yH_std*std_tolerance))):
-                                outliers.append([x1, y1])
+                        if backgroundFilter is "median":
+                            if homographyPoints is True:
+                                if (flowVectorLength_xH[i] > (
+                                        flowVectorLength_xH_median + flowVectorLength_xH_std * std_tolerance)) or (
+                                        flowVectorLength_xH[i] < (
+                                        flowVectorLength_xH_median - flowVectorLength_xH_std * std_tolerance)) \
+                                        and ((flowVectorLength_yH[i] > (
+                                        flowVectorLength_yH_median + flowVectorLength_yH_std * std_tolerance)) or (
+                                                     flowVectorLength_yH[i] < (
+                                                     flowVectorLength_yH_median - flowVectorLength_yH_std * std_tolerance))):
+                                    outliers.append([x1, y1])
+                                else:
+                                    inliers.append([x1, y1])
                             else:
-                                inliers.append([x1, y1])
-                        else:
-                            if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)) \
-                                and ((flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance))):
-                                outliers.append([x1, y1])
+                                if (flowVectorLength_x[i] > (
+                                        flowVectorLength_x_median + flowVectorLength_x_std * std_tolerance)) or (
+                                        flowVectorLength_x[i] < (
+                                        flowVectorLength_x_median - flowVectorLength_x_std * std_tolerance)) \
+                                        and ((flowVectorLength_y[i] > (
+                                        flowVectorLength_y_median + flowVectorLength_y_std * std_tolerance)) or (
+                                                     flowVectorLength_y[i] < (
+                                                     flowVectorLength_y_median - flowVectorLength_y_std * std_tolerance))):
+                                    outliers.append([x1, y1])
+                                else:
+                                    inliers.append([x1, y1])
+                        elif backgroundFilter is "mean":
+                            if homographyPoints is True:
+                                if (flowVectorLength_xH[i] > (flowVectorLength_xH_average + flowVectorLength_xH_std*std_tolerance)) or (flowVectorLength_xH[i] < (flowVectorLength_xH_average - flowVectorLength_xH_std*std_tolerance)) \
+                                    and ((flowVectorLength_yH[i] > (flowVectorLength_yH_average + flowVectorLength_yH_std*std_tolerance)) or (flowVectorLength_yH[i] < (flowVectorLength_yH_average - flowVectorLength_yH_std*std_tolerance))):
+                                    outliers.append([x1, y1])
+                                else:
+                                    inliers.append([x1, y1])
                             else:
-                                inliers.append([x1, y1])
+                                if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)) \
+                                    and ((flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance))):
+                                    outliers.append([x1, y1])
+                                else:
+                                    inliers.append([x1, y1])
                         i = i + 1
 
                 # determine who is likely moving
