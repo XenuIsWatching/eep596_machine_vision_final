@@ -32,16 +32,17 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_015.avi')
+cap = cv2.VideoCapture('Data_backup/sample_video/V3V100005_010.avi')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
 flowType = "LK"
 homographyPoints = True
-pointDistance = 7
-contourAreaCutoff = pointDistance * 90
+ransacThreshold = 10.0
+pointDistance = 15
+contourAreaCutoff = pointDistance * 80
 cornerQuality = 0.001
-std_tolerance = 1.5
+std_tolerance = 1.0
 lk_params = dict( winSize =(19, 19),
                   maxLevel=4,
                   criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -442,7 +443,7 @@ while(cap.isOpened()):
                 #uvs = np.vstack((flowVectorLength_x, flowVectorLength_y)).T
                 #z = np.ones_like(flowVectorLength_x)
                 #uvzs = np.vstack((flowVectorLength_x, flowVectorLength_y, z)).T
-                h, _ = cv2.findHomography(good_old, good_new, cv2.RANSAC, 8.0)
+                h, _ = cv2.findHomography(good_old, good_new, cv2.RANSAC, ransacThreshold)
 
                 #for vec in uvzs:
                 #    vec = vec.T
@@ -464,19 +465,21 @@ while(cap.isOpened()):
                 flowVectorLength_x = []
                 flowVectorLength_y = []
                 flowAngle = []
+                flowVectorLength_H = []
+                flowVectorLength_xH = []
+                flowVectorLength_yH = []
+                flowAngle_H = []
                 for (x0, y0), (x1, y1), (xT, yT), good in zip(p0[:, 0], p1[:, 0], pT[:, 0], st[:, 0]):
                     if good:
                         cv2.line(vis, (x0, y0), (x1, y1), (0, 128, 0))
-                        if homographyPoints is True:
-                            flowVectorLength.append(math.sqrt((x1 - xT) ** 2 + (y1 - yT) ** 2)) # calculate flow vector length (speed)
-                            flowVectorLength_x.append(x1 - xT) # calculate the x vector
-                            flowVectorLength_y.append(y1 - yT) # calculate the y vector
-                            flowAngle.append(math.degrees(math.atan2((y1 - yT), (x1 - xT)))) # calculate flow vector angle (direction)
-                        else:
-                            flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)) # calculate flow vector length (speed)
-                            flowVectorLength_x.append(x1 - x0) # calculate the x vector
-                            flowVectorLength_y.append(y1 - y0) # calculate the y vector
-                            flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0)))) # calculate flow vector angle (direction)
+                        flowVectorLength_H.append(math.sqrt((x1 - xT) ** 2 + (y1 - yT) ** 2)) # calculate flow vector length (speed)
+                        flowVectorLength_xH.append(x1 - xT) # calculate the x vector
+                        flowVectorLength_yH.append(y1 - yT) # calculate the y vector
+                        flowAngle_H.append(math.degrees(math.atan2((y1 - yT), (x1 - xT)))) # calculate flow vector angle (direction)
+                        flowVectorLength.append(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)) # calculate flow vector length (speed)
+                        flowVectorLength_x.append(x1 - x0) # calculate the x vector
+                        flowVectorLength_y.append(y1 - y0) # calculate the y vector
+                        flowAngle.append(math.degrees(math.atan2((y1 - y0), (x1 - x0)))) # calculate flow vector angle (direction)
                     vis = cv2.circle(vis, (x1, y1), 2, (red, green)[good], -1)
                     #vis = cv2.circle(vis, (x0, y0), 2, (red, green)[good], -1)
                     vis = cv2.circle(vis, (xT, yT), 2, (255, 0, 0), -1)
@@ -485,6 +488,10 @@ while(cap.isOpened()):
                 y = p1[:, 0, 1] - p0[:, 0, 1]
                 mag, ang = cv2.cartToPolar(x, y, angleInDegrees=False)
                 im2Reg = cv2.warpPerspective(im2, h, (frame_width, frame_height), flags=cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
+
+                x = p1[:, 0, 0] - pT[:, 0, 0]
+                y = p1[:, 0, 1] - pT[:, 0, 1]
+                magH, angH = cv2.cartToPolar(x, y, angleInDegrees=False)
 
 
                 # calculate the mean, std, and median of the x, y vectors
@@ -498,27 +505,59 @@ while(cap.isOpened()):
                 flowVectorLength_y_median = np.median(flowVectorLength_y)
                 flowVectorLength_y_std = np.std(flowVectorLength_y)
                 flowAngle_median = np.median(flowAngle)
-                flowVectorLength_compestated = []
-                for i in range(0, len(flowAngle), 1):
-                    flowVectorLength_compestated.append(flowVectorLength[i] * math.cos(flowAngle_median - flowAngle[i]))
+                ##
+                flowVectorLength_H_average = np.mean(flowVectorLength_H)
+                flowVectorLength_H_median = np.median(flowVectorLength_H)
+                flowVectorLength_H_std = np.std(flowVectorLength_H)
+                flowVectorLength_xH_average = np.mean(flowVectorLength_xH)
+                flowVectorLength_xH_median = np.median(flowVectorLength_xH)
+                flowVectorLength_xH_std = np.std(flowVectorLength_xH)
+                flowVectorLength_yH_average = np.mean(flowVectorLength_yH)
+                flowVectorLength_yH_median = np.median(flowVectorLength_yH)
+                flowVectorLength_yH_std = np.std(flowVectorLength_yH)
+                flowAngle_H_median = np.median(flowAngle_H)
+
 
                 #graph all the vectors and angles
                 if True:
                     Z = np.vstack((flowVectorLength, flowAngle)).T
                     Z = np.float32(Z)
                     rcolors = ang
+                    #fig = plt.figure()
                     plt.clf()
-                    ax = plt.subplot(221, polar=True)
-                    #c = plt.scatter(ang, mag, c=rcolors)
-                    #c.set_alpha(0.75)
+                    bx = plt.subplot(221, polar=True)
+                    bx.scatter(ang, mag, c=rcolors)
+                    bx.set_title("XY vector before Homography (polar)")
 
-                    vx = plt.subplot(111)
-                    vx.hist2d(flowVectorLength_x, flowVectorLength_y, bins=(25, 25), cmap=plt.cm.jet)
-                    vx.scatter(flowVectorLength_x_average, flowVectorLength_y_average)
-                    vx.annotate("mean",(flowVectorLength_x_average, flowVectorLength_y_average))
-                    vx.scatter(flowVectorLength_x_median, flowVectorLength_y_median)
-                    vx.annotate("median", (flowVectorLength_x_median, flowVectorLength_y_median))
-                    stdRect = plt.Rectangle((flowVectorLength_x_average-flowVectorLength_x_std, flowVectorLength_y_average-flowVectorLength_y_std), flowVectorLength_x_std*2, flowVectorLength_y_std*2, color='r', fill=False)
+                    cx = plt.subplot(222)
+                    cx.set_title("XY Histogram vector before Homography (cart)")
+                    cx.set_xlabel("X vector")
+                    cx.set_ylabel("Y vector")
+                    cx.hist2d(flowVectorLength_x, flowVectorLength_y, bins=(25, 25), cmap=plt.cm.jet)
+                    cx.scatter(flowVectorLength_x_average, flowVectorLength_y_average)
+                    cx.annotate("mean", (flowVectorLength_x_average, flowVectorLength_y_average))
+                    cx.scatter(flowVectorLength_x_median, flowVectorLength_y_median)
+                    cx.annotate("median", (flowVectorLength_x_median, flowVectorLength_y_median))
+                    stdRect = plt.Rectangle((flowVectorLength_x_average - flowVectorLength_x_std,
+                                             flowVectorLength_y_average - flowVectorLength_y_std),
+                                            flowVectorLength_x_std * 2, flowVectorLength_y_std * 2, color='r',
+                                            fill=False)
+                    cx.add_artist(stdRect)
+
+                    ax = plt.subplot(223, polar=True)
+                    ax.scatter(angH, magH, c=rcolors)
+                    ax.set_title("XY vector after Homography (polar)")
+
+                    vx = plt.subplot(224)
+                    vx.set_title("XY Histogram vector after Homography (cart)")
+                    vx.set_xlabel("X vector")
+                    vx.set_ylabel("Y vector")
+                    vx.hist2d(flowVectorLength_xH, flowVectorLength_yH, bins=(25, 25), cmap=plt.cm.jet)
+                    vx.scatter(flowVectorLength_xH_average, flowVectorLength_yH_average)
+                    vx.annotate("mean",(flowVectorLength_xH_average, flowVectorLength_yH_average))
+                    vx.scatter(flowVectorLength_xH_median, flowVectorLength_yH_median)
+                    vx.annotate("median", (flowVectorLength_xH_median, flowVectorLength_yH_median))
+                    stdRect = plt.Rectangle((flowVectorLength_xH_average-flowVectorLength_xH_std, flowVectorLength_yH_average-flowVectorLength_yH_std), flowVectorLength_xH_std*2, flowVectorLength_yH_std*2, color='r', fill=False)
                     vx.add_artist(stdRect)
 
 
@@ -550,11 +589,18 @@ while(cap.isOpened()):
                 inliers = []
                 for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
                     if good:
-                        if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)) \
-                            and ((flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance))):
-                            outliers.append([x1, y1])
+                        if homographyPoints is True:
+                            if (flowVectorLength_xH[i] > (flowVectorLength_xH_average + flowVectorLength_xH_std*std_tolerance)) or (flowVectorLength_xH[i] < (flowVectorLength_xH_average - flowVectorLength_xH_std*std_tolerance)) \
+                                and ((flowVectorLength_yH[i] > (flowVectorLength_yH_average + flowVectorLength_yH_std*std_tolerance)) or (flowVectorLength_yH[i] < (flowVectorLength_yH_average - flowVectorLength_yH_std*std_tolerance))):
+                                outliers.append([x1, y1])
+                            else:
+                                inliers.append([x1, y1])
                         else:
-                            inliers.append([x1, y1])
+                            if (flowVectorLength_x[i] > (flowVectorLength_x_average + flowVectorLength_x_std*std_tolerance)) or (flowVectorLength_x[i] < (flowVectorLength_x_average - flowVectorLength_x_std*std_tolerance)) \
+                                and ((flowVectorLength_y[i] > (flowVectorLength_y_average + flowVectorLength_y_std*std_tolerance)) or (flowVectorLength_y[i] < (flowVectorLength_y_average - flowVectorLength_y_std*std_tolerance))):
+                                outliers.append([x1, y1])
+                            else:
+                                inliers.append([x1, y1])
                         i = i + 1
 
                 # determine who is likely moving
@@ -598,11 +644,11 @@ while(cap.isOpened()):
                            os.mkdir("images")
                         cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w]) # write object image to file
                     objClass = objTypeByNpImg(npArrImg)
-                    if objClass is "background":
-                        isBackground = True
-                    if isBackground is False:
-                        cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
-                        cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA) # display detected object class name
+                    #if objClass is "background":
+                        #isBackground = True
+                    #if isBackground is False:
+                    cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
+                    cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA) # display detected object class name
                     i=i+1
                     uid=uid+1
 
@@ -787,7 +833,7 @@ while(cap.isOpened()):
             # Find homography
             transformationType = "euclidian"
             if transformationType is "homography":
-                h, mask = cv2.findHomography(points2, points1, cv2.RANSAC, 5.0)
+                h, mask = cv2.findHomography(points2, points1, cv2.RANSAC, ransacThreshold)
                 height, width = im2.shape
                 im1Reg = cv2.warpPerspective(im1, h, (width, height), flags=cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
                 im2Reg = cv2.warpPerspective(im2, h, (width, height), flags=cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
