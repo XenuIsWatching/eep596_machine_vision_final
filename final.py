@@ -25,14 +25,14 @@ from scipy.spatial import cKDTree
 
 warnings.filterwarnings('ignore')
 
-outPyWrite = False
+outPyWrite = True
 writeToImgFolder = False
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_015.avi')
+cap = cv2.VideoCapture('Data_backup/sample_video/V3V100003_004.avi')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
@@ -40,7 +40,7 @@ flowType = "LK"
 backgroundFilter = "median"
 homographyPoints = True
 ransacThreshold = 3.0
-pointDistance = 16
+pointDistance = 15
 contourAreaCutoff = pointDistance * 90
 cornerQuality = 0.001
 std_tolerance = 1.2
@@ -48,7 +48,7 @@ lk_params = dict( winSize =(19, 19),
                   maxLevel=4,
                   criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
-feature_params = dict( maxCorners=200,
+feature_params = dict( maxCorners=100,
                        qualityLevel=cornerQuality,
                        minDistance=15,
                        blockSize=19)
@@ -275,19 +275,6 @@ def draw_flow(img, flow, step=16):
     for (x1, y1), (_x2, _y2) in lines:
         cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)
     return vis
-
-def draw_hsv(flow):
-    h, w = flow.shape[:2]
-    fx, fy = flow[:,:,0], flow[:,:,1]
-    ang = np.arctan2(fy, fx) + np.pi
-    v = np.sqrt(fx*fx+fy*fy)
-    hsv = np.zeros((h, w, 3), np.uint8)
-    hsv[...,0] = ang*(180/np.pi/2)
-    hsv[...,1] = 255
-    hsv[...,2] = np.minimum(v*4, 255)
-    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    return bgr
-
 
 def warp_flow(img, flow):
     h, w = flow.shape[:2]
