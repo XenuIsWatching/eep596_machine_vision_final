@@ -198,10 +198,12 @@ dmypy.json
 # ignore all data files
 *.avi
 *.ipynb
+data/sample_video/
 __pycache__
 *.pyc
 cifar10_tutorial.ipynb
 cifar10_tutorial-checkpoint.ipynb
+*.gslides
 *.mpg
 *.jpg
 *.bmp
