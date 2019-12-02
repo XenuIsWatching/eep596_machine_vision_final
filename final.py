@@ -32,7 +32,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_017.avi')
+cap = cv2.VideoCapture('Data_backup/sample_video/police_chase2.mp4')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
@@ -432,15 +432,6 @@ while(cap.isOpened()):
                     else:
                         i = i + 1
 
-                # delete points if they get to close to another point
-                tree = cKDTree(p1.reshape(-1,2))
-                rows_delete = tree.query_pairs(r=pointDistance*0.25)
-                for p in rows_delete:
-                    p0 = np.delete(p0, p, 0)
-                    p1 = np.delete(p1, p, 0)
-                    st = np.delete(st, p, 0)
-                    err = np.delete(err, p, 0)
-
                 # Select good points
                 good_new = p1[st == 1]
                 good_old = p0[st == 1]
@@ -717,7 +708,10 @@ while(cap.isOpened()):
                             cv2.LINE_AA)
                 cv2.putText(vis, "corner quality: " + str(cornerQuality), (5, 34), cv2.FONT_HERSHEY_DUPLEX, 0.25, green, 1,
                             cv2.LINE_AA)
-                cv2.putText(vis, "point distance: " + str(pointDistance), (5, 42), cv2.FONT_HERSHEY_DUPLEX, 0.25, green,
+                cv2.putText(vis, "motion corner quality: " + str(cornerOutlierQuality), (5, 42), cv2.FONT_HERSHEY_DUPLEX, 0.25, green,
+                            1,
+                            cv2.LINE_AA)
+                cv2.putText(vis, "point distance: " + str(pointDistance), (5, 50), cv2.FONT_HERSHEY_DUPLEX, 0.25, green,
                             1,
                             cv2.LINE_AA)
                 cv2.imshow("vis", vis)
@@ -742,13 +736,19 @@ while(cap.isOpened()):
                 # delete points if they get to close to another point
                 if len(outliers) is not 0:
                     tree = cKDTree(outliers)
-                    rows_delete = tree.query_pairs(r=pointDistance * 0.25)
+                    rows_delete = tree.query_pairs(r=pointDistance * 0.20)
+                    cnt = 0
                     for p in rows_delete:
-                        outliers = np.delete(outliers, p, 0)
+                        if cnt % 2: # delete every other pair
+                            outliers = np.delete(outliers, p, 0)
+                        cnt = cnt + 1
                 tree = cKDTree(inliers)
                 rows_delete = tree.query_pairs(r=pointDistance * 0.75)
+                cnt = 0
                 for p in rows_delete:
-                    inliers = np.delete(inliers, p, 0)
+                    if cnt % 2: # delete every other pair
+                        inliers = np.delete(inliers, p, 0)
+                    cnt = cnt + 1
 
                 if len(outliers) is 0:
                     p2 = np.asarray(inliers)
