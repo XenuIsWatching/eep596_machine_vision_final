@@ -166,7 +166,7 @@ def objTypeByNpImg(nparrimg):
     idx = np.argmax(m(npArrImg_loader(trans_, nparrimg)).detach().numpy())
     return CATAGORIES[idx]
 
-print(objTypeByPath("data/test_random/random_test1.jpg"))
-print(objTypeByPath("data/test_random/random_test2.jpg"))
-print(objTypeByPath("data/test_random/random_test3.jpg"))
-print(objTypeByPath("data/test_random/random_test4.jpg"))
+print(objTypeByPath("data/test_random/rand_test1.jpg"))
+print(objTypeByPath("data/test_random/rand_test2.jpg"))
+print(objTypeByPath("data/test_random/rand_test3.jpg"))
+print(objTypeByPath("data/test_random/rand_test4.jpg"))
