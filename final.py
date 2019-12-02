@@ -32,7 +32,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100003_004.avi')
+cap = cv2.VideoCapture('data/sample_video/V3V100007_015.avi')#Data_backup/sample_video/V3V100003_004.avi
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
