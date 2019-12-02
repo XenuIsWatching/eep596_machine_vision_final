@@ -196,6 +196,8 @@ dmypy.json
 .pyre/
 
 # ignore all data files
+data/sample_video/
+*.gslides
 *.avi
 *.ipynb
 __pycache__
@@ -211,11 +213,11 @@ train_perfect_preds.txt
 *.csv
 create_landmark_dataset.py
 data/devkit/README.txt
-!car_test1.jpg
-!person_test1.jpg
-!random_test1.jpg
-!00001.jpg
-!person_001.bmp
+#!car_test1.jpg
+#!person_test1.jpg
+#!random_test1.jpg
+#!00001.jpg
+#!person_001.bmp
 Icon?
 
 # End of https://www.gitignore.io/api/python,pycharm
