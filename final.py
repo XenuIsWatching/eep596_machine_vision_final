@@ -32,7 +32,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-cap = cv2.VideoCapture('Data_backup/sample_video/V3V100003_004.avi')
+cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_017.avi')
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
@@ -41,9 +41,11 @@ backgroundFilter = "median"
 homographyPoints = True
 ransacThreshold = 3.0
 pointDistance = 15
+totalPoints = 200
 contourAreaCutoff = pointDistance * 90
 cornerQuality = 0.001
-std_tolerance = 1.2
+cornerOutlierQuality = 0.001
+std_tolerance = 1.0
 lk_params = dict( winSize =(19, 19),
                   maxLevel=4,
                   criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -383,10 +385,10 @@ while(cap.isOpened()):
                 if first is True:
                     p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
                     movement_weight = np.zeros_like(im1)
-                elif len(p2) < 250:
+                elif len(p2) < totalPoints*0.75:
                     mask = calculate_region_of_interest(im1, p2, pointDistance)
                     cv2.imshow('point mask', mask)
-                    p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = 300 - len(p2), qualityLevel = cornerQuality, minDistance = pointDistance, blockSize = 19 )
+                    p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = totalPoints - len(p2), qualityLevel = cornerQuality, minDistance = pointDistance, blockSize = 19 )
                     p2 = p2.reshape(-1, 1, 2)
                     if p0 is not None:
                         p0 = np.concatenate((p0, p2), 0)
@@ -395,10 +397,26 @@ while(cap.isOpened()):
                 else:
                     p0 = p2.reshape(-1, 1, 2)
 
-                if p0.shape[0] < 200:
-                    cornerQuality = cornerQuality - cornerQuality/2
-                elif p0.shape[0] > 275 and cornerQuality < 0.5:
-                    cornerQuality = cornerQuality + cornerQuality
+                if first is False:
+                    if len(outliers) < len(p2)*0.2:
+                        cv2.imshow('point mask', maskin)
+                        p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners=int(totalPoints*0.25 - len(outliers)),
+                                                     qualityLevel=cornerOutlierQuality,
+                                                     minDistance=int(pointDistance * 0.6), blockSize=19)
+                        p2 = p2.reshape(-1, 1, 2)
+                        if p0 is not None:
+                            p0 = np.concatenate((p0, p2), 0)
+                        else:
+                            p0 = p2
+
+                    if p0.shape[0] < totalPoints*0.5:
+                        cornerQuality = cornerQuality - cornerQuality/2
+                    elif p0.shape[0] > totalPoints*0.8 and cornerQuality < 0.5:
+                        cornerQuality = cornerQuality + cornerQuality
+                    if len(outliers) < len(p2)*0.15:
+                        cornerOutlierQuality = cornerOutlierQuality - cornerOutlierQuality/2
+                    elif len(outliers) > len(p2)*0.22:
+                        cornerOutlierQuality = cornerOutlierQuality - cornerOutlierQuality / 2
 
                 # sparse lucas kanade
                 p1, st, err = cv2.calcOpticalFlowPyrLK(im2, im1, p0, None, **lk_params)
@@ -416,7 +434,7 @@ while(cap.isOpened()):
 
                 # delete points if they get to close to another point
                 tree = cKDTree(p1.reshape(-1,2))
-                rows_delete = tree.query_pairs(r=pointDistance*0.5)
+                rows_delete = tree.query_pairs(r=pointDistance*0.25)
                 for p in rows_delete:
                     p0 = np.delete(p0, p, 0)
                     p1 = np.delete(p1, p, 0)
@@ -582,9 +600,7 @@ while(cap.isOpened()):
                     #c = ax.scatter(B[:, 1], B[:, 0], c='r')
                     #c = ax.scatter(A[:, 1], A[:, 0])
 
-                mask = np.zeros_like(im1)
                 i = 0
-
                 # filter out the background
                 outliers = []
                 inliers = []
@@ -631,14 +647,25 @@ while(cap.isOpened()):
                         i = i + 1
 
                 # determine who is likely moving
+                mask = np.zeros_like(im1)
+                maskbound = np.zeros_like(im1)
+                maskin = np.zeros_like(im1)
+                maskin[:] = 255
                 if len(outliers) < len(inliers):
                     for (x1, y1) in outliers:
-                        cv2.circle(mask, (x1, y1), int(pointDistance*0.8), 255, -1)
+                        cv2.circle(maskin, (x1, y1), int(pointDistance * 0.5), 0, -1)
+                        cv2.circle(maskbound, (x1, y1), int(pointDistance * 1.5), 255, -1)
+                        cv2.circle(mask, (x1, y1), int(pointDistance * 0.9), 255, -1)
                 else:
                     for (x1, y1) in inliers:
-                        cv2.circle(mask, (x1, y1), int(pointDistance*0.8), 255, -1)
+                        cv2.circle(maskin, (x1, y1), int(pointDistance * 0.5), 0, -1)
+                        cv2.circle(maskbound, (x1, y1), int(pointDistance * 1.5), 255, -1)
+                        cv2.circle(mask, (x1, y1), int(pointDistance * 0.9), 255, -1)
 
+                maskin = cv2.bitwise_and(maskbound, maskin)
+                maskin = ~maskin
                 cv2.imshow("mask", mask)
+                cv2.imshow("maskin", maskin)
 
                 kernel = np.ones((10, 10), np.uint8)
 
@@ -711,6 +738,17 @@ while(cap.isOpened()):
                     #p0 = np.concatenate((np.round(p0, 10), np.round(p2, 15)), 0)
                     #p0 = [tuple(row) for row in p0]
                     #p0 = np.asarray(p0)
+
+                # delete points if they get to close to another point
+                if len(outliers) is not 0:
+                    tree = cKDTree(outliers)
+                    rows_delete = tree.query_pairs(r=pointDistance * 0.25)
+                    for p in rows_delete:
+                        outliers = np.delete(outliers, p, 0)
+                tree = cKDTree(inliers)
+                rows_delete = tree.query_pairs(r=pointDistance * 0.75)
+                for p in rows_delete:
+                    inliers = np.delete(inliers, p, 0)
 
                 if len(outliers) is 0:
                     p2 = np.asarray(inliers)
