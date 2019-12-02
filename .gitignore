@@ -196,11 +196,12 @@ dmypy.json
 .pyre/
 
 # ignore all data files
-data/sample_video/
+data
+.ipynb_checkpoints
+random_test1.jpg
 *.gslides
 *.avi
 *.ipynb
-data/sample_video/
 __pycache__
 *.pyc
 cifar10_tutorial.ipynb
