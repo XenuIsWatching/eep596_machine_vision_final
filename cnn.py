@@ -17,7 +17,7 @@ DATADIR = os.getcwd()+'/data/train_img'
 BATCH_SIZE = 16
 IMG_SIZE = 100
 CENTER_SIZE = IMG_SIZE+IMG_SIZE*0.2
-CATAGORIES = ["background","car","person"]
+CATAGORIES = ["car","motorcycle","person","plane","truck"]
 CATEGORY_SIZE = len(CATAGORIES)
 
 # transform to do random affine and cast image to PyTorch tensor
@@ -40,9 +40,20 @@ loader = torch.utils.data.DataLoader(ds,
 
 type(CATEGORY_SIZE)
 
+#visualize images
+# for x, y in loader:
+#     print(x.shape) #the img
+#     print(y.shape) #tensor dim
+#     print(y) #tensor
+#     break
+#
+# for i in range(BATCH_SIZE):
+#     plt.imshow(np.transpose(x[i,:], (1,2,0)))
+#     plt.show()
+
 #the cnn class which inherit from torch.nn.Module class
-layer = 2#4; don't forget to change parameters in final.py when change layer amount!
-final_ch = 32 #final out channel, 4 layers has: 128;
+layer = 3#4; don't forget to change parameters in final.py when change layer amount!
+final_ch = 64 #final out channel, 4 layers has: 128;
 class CNN(nn.Module):
     cur_kernel_size = 3
     pool_kernel_val = 2
@@ -53,7 +64,7 @@ class CNN(nn.Module):
         self.l1 = nn.Conv2d(kernel_size=3, in_channels=3, out_channels=16) #1st convolve layer
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2) #down sampling layer
         self.l2 = nn.Conv2d(kernel_size=3, in_channels=16, out_channels=32) #2nd convolve layer
-        #self.l3 = nn.Conv2d(kernel_size=3, in_channels=32, out_channels=64)  # 3rd convolve layer
+        self.l3 = nn.Conv2d(kernel_size=3, in_channels=32, out_channels=64)  # 3rd convolve layer
         #self.l4 = nn.Conv2d(kernel_size=3, in_channels=64, out_channels=128)  # 4th convolve layer
 
         #calculate the final dimention (h*w*d) after 2 layers of convolution and downsampling
@@ -76,7 +87,7 @@ class CNN(nn.Module):
         #(conv->pool layers)
         x = self.pool(F.relu(self.l1(x)))
         x = self.pool(F.relu(self.l2(x)))
-        #x = self.pool(F.relu(self.l3(x)))
+        x = self.pool(F.relu(self.l3(x)))
         #x = self.pool(F.relu(self.l4(x)))
         #flatten layer
         x = x.view(x.size(0), -1)
@@ -170,3 +181,5 @@ print(objTypeByPath("data/test_random/rand_test1.jpg"))
 print(objTypeByPath("data/test_random/rand_test2.jpg"))
 print(objTypeByPath("data/test_random/rand_test3.jpg"))
 print(objTypeByPath("data/test_random/rand_test4.jpg"))
+print(objTypeByPath("data/test_random/rand_test5.jpg"))
+print(objTypeByPath("data/test_random/rand_test6.jpg"))

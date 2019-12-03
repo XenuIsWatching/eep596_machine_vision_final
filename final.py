@@ -25,14 +25,14 @@ from scipy.spatial import cKDTree
 
 warnings.filterwarnings('ignore')
 
-outPyWrite = True
+outPyWrite = False
 writeToImgFolder = False
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
-cap = cv2.VideoCapture('data/sample_video/V3V100007_015.avi')#Data_backup/sample_video/V3V100003_004.avi
+cap = cv2.VideoCapture('data/sample_video/V3V100007_017.avi')#Data_backup/sample_video/V3V100003_004.avi
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
@@ -55,12 +55,11 @@ feature_params = dict( maxCorners=100,
 
 # the cnn class which inherit from torch.nn.Module class
 ### cnn.py start
-layer = 2
 DATADIR = os.getcwd()+'/data/train_img'
 BATCH_SIZE = 16
 IMG_SIZE = 100
 CENTER_SIZE = IMG_SIZE+IMG_SIZE*0.2#20
-CATAGORIES = ["background","car","person"]
+CATAGORIES = ["car","motorcycle","person","plane","truck"]
 CATEGORY_SIZE = len(CATAGORIES)
 
 # transform to do random affine and cast image to PyTorch tensor
@@ -72,48 +71,49 @@ trans_ = torchvision.transforms.Compose(
      torchvision.transforms.ToTensor()] #transform from height*width*channel to ch*h*w in order to fit tourch tensor format
 )
 
-
+#the cnn class which inherit from torch.nn.Module class
+layer = 3#4; don't forget to change parameters in final.py when change layer amount!
+final_ch = 64 #final out channel, 4 layers has: 128;
 class CNN(nn.Module):
     cur_kernel_size = 3
     pool_kernel_val = 2
     cur_img_dim = CENTER_SIZE
-
-    def __init__(self):  # constructor
+    def __init__(self):
         super(CNN, self).__init__()
 
-        self.l1 = nn.Conv2d(kernel_size=3, in_channels=3, out_channels=16)  # 1st convolve layer
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)  # down sampling layer
-        self.l2 = nn.Conv2d(kernel_size=3, in_channels=16, out_channels=32)  # 2nd convolve layer
+        self.l1 = nn.Conv2d(kernel_size=3, in_channels=3, out_channels=16) #1st convolve layer
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2) #down sampling layer
+        self.l2 = nn.Conv2d(kernel_size=3, in_channels=16, out_channels=32) #2nd convolve layer
+        self.l3 = nn.Conv2d(kernel_size=3, in_channels=32, out_channels=64)  # 3rd convolve layer
+        #self.l4 = nn.Conv2d(kernel_size=3, in_channels=64, out_channels=128)  # 4th convolve layer
 
-        # calculate the final dimention (h*w*d) after 2 layers of convolution and downsampling
+        #calculate the final dimention (h*w*d) after 2 layers of convolution and downsampling
         global cur_img_dim
         global cur_kernel_size
         global pool_kernel_val
         cur_img_dim = CENTER_SIZE
         cur_kernel_size = 3
         pool_kernel_val = 2
-        img_trim = ((cur_kernel_size - 1) / 2) * 2  # here assume kernel size is always odd
+        img_trim = ((cur_kernel_size-1)/2)*2#here assume kernel size is always odd
         for i in range(layer):
             cur_img_dim -= img_trim
-            cur_img_dim = cur_img_dim / pool_kernel_val
+            cur_img_dim = cur_img_dim/pool_kernel_val
         cur_img_dim = int(cur_img_dim)
 
         # FC layer (fully-connected or linear layer)
-        self.fc1 = nn.Linear(int(32 * cur_img_dim * cur_img_dim), CATEGORY_SIZE)  # 32 * 28 * 28 for 2 layers
+        self.fc1 = nn.Linear(int(final_ch * cur_img_dim * cur_img_dim), CATEGORY_SIZE) #32 * 28 * 28 for 2 layers
 
     def forward(self, x):
-        # define the data flow through the deep learning layers
-        # (1st conv->pool layer)
+        #(conv->pool layers)
         x = self.pool(F.relu(self.l1(x)))
-        # (2nd conv->pool layer)
         x = self.pool(F.relu(self.l2(x)))
-        # flatten layer, set -1 coz last batch might not be full
-        input_size = 32 * cur_img_dim * cur_img_dim
-        x = x.reshape(-1, input_size)  # [16 x 1152]
-        # FC layer
+        x = self.pool(F.relu(self.l3(x)))
+        #x = self.pool(F.relu(self.l4(x)))
+        #flatten layer
+        x = x.view(x.size(0), -1)
+        #FC layer
         x = self.fc1(x)
         return x
-
 
 m = CNN()
 m = torch.load("model.pt")
