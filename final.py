@@ -15,10 +15,12 @@ import tqdm
 import torch.optim as optim
 import os
 import PIL as pil
+from PIL import Image
 import warnings
 from scipy.spatial import distance as dist
 from collections import OrderedDict
 from scipy.spatial import cKDTree
+from colorthief import ColorThief
 
 #import cnn as cnn
 #from cnn import CNN
@@ -33,7 +35,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 uid = 0
 
 # configuration
-cap = cv2.VideoCapture('data/sample_video/V3V100007_017.avi')#Data_backup/sample_video/V3V100003_004.avi
+cap = cv2.VideoCapture('Data_backup/sample_video/V3V100007_017.avi')#Data_backup/sample_video/V3V100003_004.avi
 frameSkipped = 1
 filterType = "bilateral"
 method = "optical"
@@ -562,11 +564,64 @@ while(cap.isOpened()):
                            os.mkdir("images")
                         cv2.imwrite(("images/object_" + str(i) + "_" + str(uid) + ".jpg"), frame[y:y+h, x:x+w]) # write object image to file
                     objClass = objTypeByNpImg(npArrImg)
+					
+					# !!! START : Let's try to get the dominant color of a detected object in each sliced image/file!
+                    """
+                    image = cv2.imread("images/object_" + str(i) + "_" + str(uid) + ".jpg")
+                    original = image.copy()
+                    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+                    canny = cv2.Canny(blurred, 120, 255, 1)
+                    kernel = np.ones((5, 5), np.uint8)
+                    dilate = cv2.dilate(canny, kernel, iterations=1)
+
+                    # Find contours
+                    cnts = cv2.findContours(dilate, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+
+                    # Iterate thorugh contours and filter for ROI
+                    if os.path.isdir("contours") is False: # check that image dir already exist
+                        os.mkdir("contours")
+                    image_number = 0
+                    for c in cnts:
+                        x, y, w, h = cv2.boundingRect(c)
+                        cv2.rectangle(image, (x, y), (x + w, y + h), (36, 255, 12), 2)
+                        ROI = original[y:y + h, x:x + w]
+                        cv2.imwrite("contours/ROI_" + str(i) + "_" + str(uid) + ".jpg", ROI)
+                        if image_number == 0:
+                            break
+                        #image_number += 1
+
+                    color_thief = ColorThief("contours/ROI_" + str(i) + "_" + str(uid) + ".jpg")
+                    """
+                    im = Image.open("images/object_" + str(i) + "_" + str(uid) + ".jpg")
+                    width, height = im.size  # Get dimensions
+                    #print("Width : " + str(width))
+                    #print("Height : " + str(height))
+                    new_height = height / 2
+                    new_width = width / 2
+
+                    left = (width - new_width) / 2
+                    top = (height - new_height) / 2
+                    right = (width + new_width) / 2
+                    bottom = (height + new_height) / 2
+
+                    # Crop the center of the image
+                    if os.path.isdir("cropped") is False:  # check that image dir already exist
+                        os.mkdir("cropped")
+                    im = im.crop((left, top, right, bottom))
+                    im.save('cropped/crop_' + str(i) + '_' + str(uid) + '.jpg')
+                    #cv2.imwrite("cropped/crop_" + str(i) + "_" + str(uid) + ".jpg", im)
+
+                    color_thief = ColorThief("cropped/crop_" + str(i) + "_" + str(uid) + ".jpg")
+                    dominant_color = color_thief.get_color(quality=1)  # (R, G, B) format
+                    # !!! END : Finding the dominant color of an image
+
                     #if objClass is "background":
                         #isBackground = True
                     #if isBackground is False:
                     cv2.rectangle(box, (x, y), (x + w, y + h), green, 2)
-                    cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, green, 2, cv2.LINE_AA) # display detected object class name
+                    cv2.putText(box, objClass, (x,y), cv2.FONT_HERSHEY_SIMPLEX, 1, dominant_color, 2, cv2.LINE_AA) # display detected object class name
                     i=i+1
                     uid=uid+1
 
