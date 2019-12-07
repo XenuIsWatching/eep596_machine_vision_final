@@ -25,13 +25,14 @@ from scipy.spatial import cKDTree
 
 warnings.filterwarnings('ignore')
 
-outPyWrite = False
-writeToImgFolder = False
+outPyWrite = False # output images to a video
+writeToImgFolder = False # output slices images to file
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True' # fix issue with macOS...
 
 uid = 0
 
+# configuration
 cap = cv2.VideoCapture('data/sample_video/V3V100007_017.avi')#Data_backup/sample_video/V3V100003_004.avi
 frameSkipped = 1
 filterType = "bilateral"
@@ -155,76 +156,6 @@ def objTypeByNpImg(nparrimg):
 
 ### cnn.py end
 
-def checkedTrace(img0, img1, p0, back_threshold = 1.0):
-    p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
-    p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
-    d = abs(p0-p0r).reshape(-1, 2).max(-1)
-    status = d < back_threshold
-    return p1, status
-
-def optical_flow(I1g, I2g, window_size, tau=1e-2):
-    kernel_x = np.array([[-1., 1.], [-1., 1.]])
-    kernel_y = np.array([[-1., -1.], [1., 1.]])
-    kernel_t = np.array([[1., 1.], [1., 1.]])  # *.25
-    w = window_size // 2  # window_size is odd, all the pixels with offset in between [-w, w] are inside the window
-    I1g = I1g / 255.  # normalize pixels
-    I2g = I2g / 255.  # normalize pixels
-    # Implement Lucas Kanade
-    # for each point, calculate I_x, I_y, I_t
-    mode = 'same'
-    fx = signal.convolve2d(I1g, kernel_x, boundary='symm', mode=mode)
-    fy = signal.convolve2d(I1g, kernel_y, boundary='symm', mode=mode)
-    ft = signal.convolve2d(I2g, kernel_t, boundary='symm', mode=mode) + signal.convolve2d(I1g, -kernel_t,
-                                                                                          boundary='symm', mode=mode)
-    u = np.zeros(I1g.shape)
-    v = np.zeros(I1g.shape)
-    # within window window_size * window_size
-    for i in range(w, I1g.shape[0] - w):
-        for j in range(w, I1g.shape[1] - w):
-            Ix = fx[i - w:i + w + 1, j - w:j + w + 1].flatten()
-            Iy = fy[i - w:i + w + 1, j - w:j + w + 1].flatten()
-            It = ft[i - w:i + w + 1, j - w:j + w + 1].flatten()
-
-            b = np.reshape(It, (It.shape[0], 1))  # get b here
-            A = np.vstack((Ix, Iy)).T  # get A here
-
-            if np.min(abs(np.linalg.eigvals(np.matmul(A.T, A)))) >= tau:
-                nu = np.matmul(np.linalg.pinv(A), b)  # get velocity here
-                u[i, j] = nu[0]
-                v[i, j] = nu[1]
-    return (u, v)
-
-def optical_flow_sparse(I1g, I2g, window_size, p0, tau=1e-2):
-    kernel_x = np.array([[-1., 1.], [-1., 1.]])
-    kernel_y = np.array([[-1., -1.], [1., 1.]])
-    kernel_t = np.array([[1., 1.], [1., 1.]])  # *.25
-    w = window_size // 2  # window_size is odd, all the pixels with offset in between [-w, w] are inside the window
-    I1g = I1g / 255.  # normalize pixels
-    I2g = I2g / 255.  # normalize pixels
-    # Implement Lucas Kanade
-    # for each point, calculate I_x, I_y, I_t
-    mode = 'same'
-    fx = signal.convolve2d(I1g, kernel_x, boundary='symm', mode=mode)
-    fy = signal.convolve2d(I1g, kernel_y, boundary='symm', mode=mode)
-    ft = signal.convolve2d(I2g, kernel_t, boundary='symm', mode=mode) + signal.convolve2d(I1g, -kernel_t,
-                                                                                          boundary='symm', mode=mode)
-    u = []
-    v = []
-    # within window window_size * window_size
-    for (i, j) in p0[:, 0]:
-            Ix = fx[i - w:i + w + 1, j - w:j + w + 1].flatten()
-            Iy = fy[i - w:i + w + 1, j - w:j + w + 1].flatten()
-            It = ft[i - w:i + w + 1, j - w:j + w + 1].flatten()
-
-            b = np.reshape(It, (It.shape[0], 1))  # get b here
-            A = np.vstack((Ix, Iy)).T  # get A here
-
-            if np.min(abs(np.linalg.eigvals(np.matmul(A.T, A)))) >= tau:
-                nu = np.matmul(np.linalg.pinv(A), b)  # get velocity here
-                u[i, j] = nu[0]
-                v[i, j] = nu[1]
-    return (u, v)
-
 def display_flow(img, flow, stride=1000):
     for index in np.ndindex(flow[::stride, ::stride].shape[:2]):
         pt1 = tuple(i*stride for i in index)
@@ -275,14 +206,6 @@ def draw_flow(img, flow, step=16):
     for (x1, y1), (_x2, _y2) in lines:
         cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)
     return vis
-
-def warp_flow(img, flow):
-    h, w = flow.shape[:2]
-    flow = -flow
-    flow[:,:,0] += np.arange(w)
-    flow[:,:,1] += np.arange(h)[:,np.newaxis]
-    res = cv.remap(img, flow, None, cv.INTER_LINEAR)
-    return res
 
 def calculate_region_of_interest(frame, tracking_points, range):
     mask = np.zeros_like(frame)
@@ -362,32 +285,18 @@ while(cap.isOpened()):
 
         # calculate optical flow
         if method is "optical":
-            if flowType is "DLK1":
-                u, v = optical_flow(im1, im2, 15)
-                # Select good points
-                vis = frame.copy()
-                for x in range (0, frame_width, 10):
-                    for y in range(0, frame_height, 10):
-                        pt = np.array([y, x])
-                        uv = np.array([u[y, x], v[y, x]]) * 4
-                        pt2 = ((pt + uv)).astype(np.int)
-                        pt = np.flip(pt)
-                        pt2 = np.flip(pt2)
-                        vis = cv2.arrowedLine(vis, tuple(pt), tuple(pt2), red, 1)
-
-                cv2.imshow("vis", vis)
-
-            elif flowType is "LK":
-
+            if flowType is "LK":
                 # add points to be tracked
                 if first is True:
                     p0 = cv2.goodFeaturesToTrack(im2, mask=None, **feature_params)
                     movement_weight = np.zeros_like(im1)
+                # if points get low, add more..
                 elif len(p2) < 250:
-                    mask = calculate_region_of_interest(im1, p2, pointDistance)
+                    mask = calculate_region_of_interest(im1, p2, pointDistance) # mask out existing points
                     cv2.imshow('point mask', mask)
                     p0 = cv2.goodFeaturesToTrack(im2, mask=mask, maxCorners = 300 - len(p2), qualityLevel = cornerQuality, minDistance = pointDistance, blockSize = 19 )
                     p2 = p2.reshape(-1, 1, 2)
+                    # combine old points with the new points
                     if p0 is not None:
                         p0 = np.concatenate((p0, p2), 0)
                     else:
@@ -395,8 +304,10 @@ while(cap.isOpened()):
                 else:
                     p0 = p2.reshape(-1, 1, 2)
 
+                # if not many points are being found, lower the quality
                 if p0.shape[0] < 200:
                     cornerQuality = cornerQuality - cornerQuality/2
+                # if too many points are being found, increase the quality
                 elif p0.shape[0] > 275 and cornerQuality < 0.5:
                     cornerQuality = cornerQuality + cornerQuality
 
@@ -439,7 +350,7 @@ while(cap.isOpened()):
                 for p in p0z:
                     v = np.matmul(h, p.T) # multiply homography matrix with xyz vertical matrix
                     v = v.T # Transpose for easier delete
-                    v[0, 0] = v[0, 0] / v[0, 2] # x / z
+                    v[0, 0] = v[0, 0] / v[0, 2] # x / z (planar)
                     v[0, 1] = v[0, 1] / v[0, 2] # y / z
                     v = np.delete(v, 2, 1) # remove z axis
                     v = v.reshape((1,1,2))
@@ -470,6 +381,7 @@ while(cap.isOpened()):
                     #vis = cv2.circle(vis, (x0, y0), 2, (red, green)[good], -1)
                     vis = cv2.circle(vis, (xT, yT), 2, (255, 0, 0), -1)
 
+                # get distance, and store in polar format
                 x = p1[:, 0, 0] - p0[:, 0, 0]
                 y = p1[:, 0, 1] - p0[:, 0, 1]
                 mag, ang = cv2.cartToPolar(x, y, angleInDegrees=False)
@@ -561,31 +473,10 @@ while(cap.isOpened()):
                                                 fill=False)
                     vx.add_artist(stdRect)
 
-
-                    #plt.clf()
-                    #plt.hist2d(flowVectorLength, flowAngle, bins=25)
-                    #zplt.show()
-                    #criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.01)
-                    #ret, label, center = cv2.kmeans(Z, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-                    #A = Z[label.ravel() == 0]
-                    #B = Z[label.ravel() == 1]
-
-                    #plt.scatter(A[:, 0], A[:, 1])
-                    #plt.scatter(B[:, 0], B[:, 1], c='r')
-                    #plt.scatter(center[:, 0], center[:, 1], s=80, c='y', marker='s')
-                    #plt.axis([0,30,-180,180])
-                    #plt.xlabel('Distance'), plt.ylabel('Angle')
-                    #plt.draw()
-
-                    #fig = plt.figure()
-                    #ax = fig.add_subplot(111, polar=True)
-                    #c = ax.scatter(B[:, 1], B[:, 0], c='r')
-                    #c = ax.scatter(A[:, 1], A[:, 0])
-
                 mask = np.zeros_like(im1)
                 i = 0
 
-                # filter out the background
+                # filter out the background, by using a median (or mean) threshold
                 outliers = []
                 inliers = []
                 for (x0, y0), (x1, y1), good in zip(p0[:, 0], p1[:, 0], st[:, 0]):
@@ -717,6 +608,7 @@ while(cap.isOpened()):
                 else:
                     p2 = np.concatenate((np.asarray(outliers), np.asarray(inliers)))
 
+                # keys presses to increase/decrease point distances while running
                 c = cv2.waitKey(1)
                 if 'w' == chr(c & 255):
                     pointDistance = pointDistance + 1
@@ -724,6 +616,7 @@ while(cap.isOpened()):
                     if pointDistance > 1:
                         pointDistance = pointDistance - 1
 
+            # experiment with dense optical flow
             elif flowType is "DLK":
                 if first is True:
                     # Create empty matrices to fill later
@@ -772,6 +665,7 @@ while(cap.isOpened()):
                     i = i + 1
                 cv2.imshow('Dense LK', vis)
 
+        # experirement using a feature based dectection
         elif method is "feature":
             # detect key feature points
             featureDetectorType = "ORB"
